@@ -15,11 +15,11 @@ services:
     container_name: erpcomm-app
     restart: unless-stopped
     ports:
-      - "3000:3000" # Expose for direct access during development
+      - "3008:3000" # Expose for direct access during development
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/enterprisechat
+      - DATABASE_URL=postgresql://easyio:oruchatDB@db:5432/Oruchat
       - REDIS_URL=redis://redis:6379
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
@@ -67,7 +67,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-enterprisechat}
       - PGDATA=/var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
@@ -102,7 +102,7 @@ services:
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
-      - "6379:6379"
+      - "6380:6380"
     volumes:
       - redis_data:/data
     networks:
