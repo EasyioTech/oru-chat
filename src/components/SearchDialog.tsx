@@ -10,7 +10,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { supabase } from "@/lib/supabase";
+
 import { useRouter } from "next/navigation";
 
 interface SearchDialogProps {
@@ -22,12 +22,12 @@ interface SearchDialogProps {
 interface SearchResult {
   id: string;
   content: string;
-  channel_id: string | null;
-  recipient_id: string | null;
-  created_at: string;
+  channelId: string | null;
+  recipientId: string | null;
+  createdAt: string;
   sender: {
     username: string;
-    full_name: string;
+    fullName: string;
   };
 }
 
@@ -45,27 +45,17 @@ export function SearchDialog({ workspaceId, open, onOpenChange }: SearchDialogPr
       }
 
       setLoading(true);
-      const { data, error } = await supabase
-        .from("messages")
-        .select(`
-          id,
-          content,
-          channel_id,
-          recipient_id,
-          created_at,
-          sender:sender_id (
-            username,
-            full_name
-          )
-        `)
-        .eq("workspace_id", workspaceId)
-        .ilike("content", `%${query}%`)
-        .limit(10);
-
-      if (!error && data) {
-        setResults(data as any);
+      try {
+        const res = await fetch(`/api/search?workspaceId=${workspaceId}&q=${encodeURIComponent(query)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setResults(data.data || []);
+        }
+      } catch (error) {
+        console.error("Search error:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     const timer = setTimeout(searchMessages, 300);
@@ -74,8 +64,8 @@ export function SearchDialog({ workspaceId, open, onOpenChange }: SearchDialogPr
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput 
-        placeholder="Search messages..." 
+      <CommandInput
+        placeholder="Search messages..."
         value={query}
         onValueChange={setQuery}
       />
@@ -95,19 +85,19 @@ export function SearchDialog({ workspaceId, open, onOpenChange }: SearchDialogPr
                 }}
                 className="flex flex-col items-start gap-1 py-3"
               >
-                  <div className="flex items-center gap-2 w-full">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100">
-                        {result.sender.full_name || result.sender.username}
-                      </span>
-                      {result.sender.username && (
-                        <span className="text-[10px] text-zinc-500 font-medium">@{result.sender.username}</span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-zinc-400">
-                      {new Date(result.created_at).toLocaleDateString()}
+                <div className="flex items-center gap-2 w-full">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100">
+                      {result.sender.fullName || result.sender.username}
                     </span>
+                    {result.sender.username && (
+                      <span className="text-[10px] text-zinc-500 font-medium">@{result.sender.username}</span>
+                    )}
                   </div>
+                  <span className="text-[10px] text-zinc-400">
+                    {new Date(result.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
                 <p className="text-sm line-clamp-2">{result.content}</p>
               </CommandItem>
             ))}

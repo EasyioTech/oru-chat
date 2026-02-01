@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+
 import {
   Dialog,
   DialogContent,
@@ -42,10 +42,7 @@ interface ChannelMembersDialogProps {
   channelName: string;
 }
 
-interface ChannelMemberResponse {
-  user_id: string;
-  profiles: Profile;
-}
+
 
 export function ChannelMembersDialog({
   channelId,
@@ -67,46 +64,17 @@ export function ChannelMembersDialog({
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch channel details to find creator
-      const { data: channelData, error: cError } = await supabase
-        .from("channels")
-        .select("created_by")
-        .eq("id", channelId)
-        .single();
+      const res = await fetch(`/api/channels/${channelId}/members?workspaceId=${workspaceId}`);
+      if (!res.ok) throw new Error("Failed to load members");
 
-      if (cError) throw cError;
-      setChannelCreator(channelData.created_by);
-
-      // Fetch channel members
-      const { data: channelMembersData, error: cmError } = await supabase
-        .from("channel_members")
-        .select("user_id, profiles!inner(*)")
-        .eq("channel_id", channelId);
-
-      if (cmError) throw cmError;
-
-        const currentMembers = (channelMembersData as unknown as ChannelMemberResponse[]).map((m) => m.profiles);
-        setMembers(currentMembers);
-  
-        // Fetch all workspace members
-        const { data: workspaceMembersData, error: wmError } = await supabase
-          .from("workspace_members")
-          .select("user_id, profiles!inner(*)")
-          .eq("workspace_id", workspaceId);
-  
-        if (wmError) throw wmError;
-  
-        const memberIds = new Set(currentMembers.map((m) => m.id));
-        const others = (workspaceMembersData as unknown as ChannelMemberResponse[])
-          .map((m) => m.profiles)
-          .filter((p) => !memberIds.has(p.id));
-
-      setNonMembers(others);
-      } catch (error: unknown) {
-        console.error("Error fetching data:", error);
-        const errorMessage = (error as { message?: string })?.message || "Unknown error";
-        toast.error("Failed to load members: " + errorMessage);
-      } finally {
+      const data = await res.json();
+      setMembers(data.members);
+      setNonMembers(data.nonMembers);
+      setChannelCreator(data.creatorId);
+    } catch (error: any) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to load members: " + error.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -121,18 +89,18 @@ export function ChannelMembersDialog({
   const addMember = async (userId: string) => {
     setAddingMember(userId);
     try {
-      const { error } = await supabase.from("channel_members").insert({
-        channel_id: channelId,
-        user_id: userId,
+      const res = await fetch(`/api/channels/${channelId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
       });
 
-      if (error) throw error;
+      if (!res.ok) throw new Error("Failed to add member");
 
       toast.success("Member added to channel");
       fetchData();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      toast.error("Failed to add member: " + errorMessage);
+    } catch (error: any) {
+      toast.error("Failed to add member: " + error.message);
     } finally {
       setAddingMember(null);
     }
@@ -141,20 +109,17 @@ export function ChannelMembersDialog({
   const removeMember = async (userId: string) => {
     setIsRemoving(true);
     try {
-      const { error } = await supabase
-        .from("channel_members")
-        .delete()
-        .eq("channel_id", channelId)
-        .eq("user_id", userId);
+      const res = await fetch(`/api/channels/${channelId}/members?userId=${userId}`, {
+        method: 'DELETE'
+      });
 
-      if (error) throw error;
+      if (!res.ok) throw new Error("Failed to remove member");
 
       toast.success("Member removed from channel");
       setRemovingMember(null);
       fetchData();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      toast.error("Failed to remove member: " + errorMessage);
+    } catch (error: any) {
+      toast.error("Failed to remove member: " + error.message);
     } finally {
       setIsRemoving(false);
     }
@@ -234,33 +199,33 @@ export function ChannelMembersDialog({
                           {(member.full_name || member.username || "?")[0].toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-sm font-medium truncate">
-                              {member.full_name || member.username}
-                            </p>
-                            {member.id === channelCreator && (
-                              <Shield className="h-3 w-3 text-zinc-400" />
-                            )}
-                          </div>
-                          <p className="text-xs text-zinc-500 truncate">
-                            @{member.username} {member.id === user?.id && "(You)"}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium truncate">
+                            {member.full_name || member.username}
                           </p>
+                          {member.id === channelCreator && (
+                            <Shield className="h-3 w-3 text-zinc-400" />
+                          )}
                         </div>
-                        {member.id !== user?.id && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-zinc-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
-                            onClick={() => setRemovingMember(member)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <p className="text-xs text-zinc-500 truncate">
+                          @{member.username} {member.id === user?.id && "(You)"}
+                        </p>
                       </div>
-                    ))
-                  )}
-                </TabsContent>
+                      {member.id !== user?.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-zinc-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                          onClick={() => setRemovingMember(member)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </TabsContent>
 
 
               <TabsContent value="add" className="mt-0 space-y-1">

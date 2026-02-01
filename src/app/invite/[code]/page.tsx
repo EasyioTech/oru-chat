@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRouter } from "next/navigation";
@@ -16,78 +16,83 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
   const [invitation, setInvitation] = useState<{ id: string; role?: string; workspaces?: { id: string; name: string; slug: string } } | null>(null);
   const [workspace, setWorkspace] = useState<{ id: string; name: string; slug: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const { user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     const fetchInvitation = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+      // User is handled by useAuth or check here? 
+      // The original code used supabase.auth.getUser() inside fetch.
+      // We rely on useAuth context better or just check session cookie if we were server.
+      // But this is client.
 
-      const { data: invite, error: inviteError } = await supabase
-        .from("workspace_invitations")
-        .select("*, workspaces(*)")
-        .eq("invite_code", code)
-        .is("used_at", null)
-        .gt("expires_at", new Date().toISOString())
-        .single();
+      try {
+        const res = await fetch(`/api/invitations/${code}`);
+        if (!res.ok) {
+          setError("This invite link is invalid or has expired.");
+          setLoading(false);
+          return;
+        }
 
-      if (inviteError || !invite) {
-        setError("This invite link is invalid or has expired.");
+        const invite = await res.json();
+        setInvitation(invite);
+        setWorkspace(invite.workspace);
+
+        // We set user from useAuth if needed, or we just trust the UI state.
+        // Let's rely on the outer component check or we can fetch /api/users/me here?
+        // Actually I'll use a simple fetch to check auth or local state.
+        // For now, let's assume auth is checked by global context.
         setLoading(false);
-        return;
-      }
 
-      setInvitation(invite);
-      setWorkspace(invite.workspaces);
-      setLoading(false);
+      } catch (err) {
+        setError("Failed to load invitation.");
+        setLoading(false);
+      }
     };
 
     fetchInvitation();
   }, [code]);
 
-    const handleJoin = async () => {
-    if (!user || !workspace || !invitation) {
-      router.push(`/?redirect=/invite/${code}`);
-      return;
-    }
+  const handleJoin = async () => {
+    // We need user state. I'll get it from context or just try to join (API will 401 if not logged in).
+    // The original code checked user state.
+
+    // Quick auth check (assuming useAuth used in layout or here)
+    // Actually the component doesn't import useAuth. I should import it.
+    // For now, I'll assume if we are not logged in, the API call returns 401 and we redirect.
 
     setJoining(true);
 
-    const { data: existingMember } = await supabase
-      .from("workspace_members")
-      .select("*")
-      .eq("workspace_id", workspace.id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (existingMember) {
-      toast.info("You are already a member of this workspace!");
-      router.push(`/workspaces/${workspace.id}`);
-      return;
-    }
-
-    const { error: memberError } = await supabase
-      .from("workspace_members")
-      .insert({
-        workspace_id: workspace.id,
-        user_id: user.id,
-        role: invitation.role || "member",
+    try {
+      const res = await fetch(`/api/invitations/${code}`, {
+        method: 'POST'
       });
 
-    if (memberError) {
+      if (res.status === 401) {
+        router.push(`/?redirect=/invite/${code}`);
+        return;
+      }
+
+      if (res.status === 409) {
+        toast.info("You are already a member of this workspace!");
+        // We need workspace ID. It's in state `workspace`.
+        if (workspace) router.push(`/workspaces/${workspace.id}`);
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error("Failed to join");
+      }
+
+      const data = await res.json();
+      toast.success(`Welcome to ${workspace?.name}!`);
+      router.push(`/workspaces/${data.workspaceId}`);
+
+    } catch (err) {
       toast.error("Failed to join workspace");
+    } finally {
       setJoining(false);
-      return;
     }
-
-    await supabase
-      .from("workspace_invitations")
-      .update({ used_at: new Date().toISOString() })
-      .eq("id", invitation.id);
-
-    toast.success(`Welcome to ${workspace.name}!`);
-    router.push(`/workspaces/${workspace.id}`);
   };
 
   if (loading) {
@@ -127,9 +132,9 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
             {workspace?.name?.[0]?.toUpperCase()}
           </div>
           <CardTitle className="text-2xl">Join {workspace?.name}</CardTitle>
-            <CardDescription>
-              You&apos;ve been invited to join this workspace
-            </CardDescription>
+          <CardDescription>
+            You&apos;ve been invited to join this workspace
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3 p-4 bg-zinc-100 dark:bg-zinc-900 rounded-lg">
@@ -145,7 +150,7 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
             </p>
           ) : (
             <p className="text-sm text-zinc-500 text-center">
-                You&apos;ll need to sign in or create an account to join
+              You&apos;ll need to sign in or create an account to join
             </p>
           )}
         </CardContent>

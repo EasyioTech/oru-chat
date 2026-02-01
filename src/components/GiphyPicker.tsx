@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { GiphyFetch } from "@giphy/js-fetch-api";
 import { Grid } from "@giphy/react-components";
 import { Input } from "@/components/ui/input";
-import { Search, Image as ImageIcon, Sticker as StickerIcon } from "lucide-react";
+import { Search, Image as ImageIcon, Sticker as StickerIcon, AlertCircle, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-const gf = new GiphyFetch(process.env.NEXT_PUBLIC_GIPHY_API_KEY || "dc6zaTOxFJmzC");
+// Validate API key exists
+const GIPHY_API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
 
 interface GiphyPickerProps {
   onSelect: (url: string) => void;
@@ -17,9 +19,79 @@ interface GiphyPickerProps {
 export function GiphyPicker({ onSelect, defaultTab = "gifs" }: GiphyPickerProps) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [gf, setGf] = useState<GiphyFetch | null>(null);
 
-  const fetchGifs = (offset: number) => 
-    gf.search(search || "trending", { offset, limit: 10, type: activeTab === "gifs" ? "gifs" : "stickers" });
+  // Initialize Giphy with validation
+  useEffect(() => {
+    if (!GIPHY_API_KEY || GIPHY_API_KEY.trim() === '') {
+      setError("Giphy API key is not configured. Please contact your administrator.");
+      setIsLoading(false);
+      console.error("Missing NEXT_PUBLIC_GIPHY_API_KEY in environment variables");
+      return;
+    }
+
+    try {
+      const giphyFetch = new GiphyFetch(GIPHY_API_KEY);
+      setGf(giphyFetch);
+      setIsLoading(false);
+    } catch (err) {
+      console.error("Failed to initialize Giphy:", err);
+      setError("Failed to load Giphy. Please try again later.");
+      setIsLoading(false);
+    }
+  }, []);
+
+  const fetchGifs = async (offset: number) => {
+    if (!gf) {
+      throw new Error("Giphy not initialized");
+    }
+
+    try {
+      const result = await gf.search(search || "trending", {
+        offset,
+        limit: 10,
+        type: activeTab === "gifs" ? "gifs" : "stickers"
+      });
+      return result;
+    } catch (err) {
+      console.error("Error fetching GIFs:", err);
+      setError("Unable to load GIFs. Please check your internet connection.");
+      throw err;
+    }
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 w-[300px] h-[400px] p-2 bg-white dark:bg-zinc-950 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800">
+        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+        <p className="text-sm text-zinc-500">Loading GIFs...</p>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !gf) {
+    return (
+      <div className="flex flex-col gap-2 w-[300px] h-[400px] p-4 bg-white dark:bg-zinc-950 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            {error || "Failed to initialize Giphy"}
+          </AlertDescription>
+        </Alert>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-xs text-zinc-400 text-center">
+            {!GIPHY_API_KEY
+              ? "Giphy integration requires an API key to be configured."
+              : "Please try refreshing the page or contact support if the issue persists."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2 w-[300px] h-[400px] p-2 bg-white dark:bg-zinc-950 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800">
@@ -33,7 +105,7 @@ export function GiphyPicker({ onSelect, defaultTab = "gifs" }: GiphyPickerProps)
         />
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "gifs" | "stickers")} className="w-full">
         <TabsList className="grid w-full grid-cols-2 h-8">
           <TabsTrigger value="gifs" className="text-xs flex items-center gap-1.5">
             <ImageIcon className="h-3.5 w-3.5" /> GIFs

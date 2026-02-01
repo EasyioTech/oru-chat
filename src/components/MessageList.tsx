@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
+import { useSocket } from "@/components/SocketProvider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -14,25 +14,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { getProfile } from "@/lib/profile-cache";
-import { 
-    Loader2, 
-    Hash, 
-    MoreHorizontal, 
-    Pencil, 
-    Trash2, 
-      Check, 
-      X, 
-      ShieldCheck, 
-      Reply, 
-      SmilePlus,
-      Pin,
-      PinOff,
-      FileIcon,
-      Download,
-      Cloud,
-      ExternalLink
-    } from "lucide-react";
+import {
+  Loader2,
+  Hash,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  ShieldCheck,
+  Reply,
+  SmilePlus,
+  Pin,
+  PinOff,
+  FileIcon,
+  Download,
+  Cloud,
+  ExternalLink
+} from "lucide-react";
 import { cn, downloadFile } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -90,10 +89,10 @@ export interface Message {
     username?: string;
     badge?: string;
   };
-    reactions?: Reaction[];
-    decryptedContent?: string;
-    is_pinned?: boolean;
-  }
+  reactions?: Reaction[];
+  decryptedContent?: string;
+  is_pinned?: boolean;
+}
 
 interface MessageListProps {
   workspaceId: string;
@@ -107,211 +106,243 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const currentUserId = user?.id;
+  const currentUserId = user?.id; // user is now Profile-like object
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
-  
+  const { socket, isConnected } = useSocket();
+
+  // Mark as read
   useEffect(() => {
     const updateLastRead = async () => {
-      if (!user || !workspaceId) return;
-      await supabase.from("member_last_read").upsert({
-        user_id: user.id,
-        workspace_id: workspaceId,
-        channel_id: channelId || null,
-        recipient_id: recipientId || null,
-        last_read_at: new Date().toISOString()
-      }, {
-        onConflict: channelId ? 'user_id,workspace_id,channel_id' : 'user_id,workspace_id,recipient_id'
-      });
+      if (!user?.id || !workspaceId) return;
+      try {
+        await fetch(`/api/workspaces/${workspaceId}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.id,
+            channelId: channelId || undefined,
+            recipientId: recipientId || undefined
+          })
+        });
+      } catch (err) {
+        console.error("Failed to update read receipt", err);
+      }
     };
 
     if (messages.length > 0) {
       updateLastRead();
     }
-  }, [messages, user, workspaceId, channelId, recipientId]);
+  }, [messages.length, user?.id, workspaceId, channelId, recipientId]);
 
+  // Fetch Messages
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!user) return;
-      setLoading(true);
+      if (!user?.id) return;
+      // Only set loading on first load to avoid flickering during polling
+      if (messages.length === 0) setLoading(true);
 
-      let query = supabase
-        .from("messages")
-        .select(`
-          *,
-          is_pinned,
-          sender:profiles!sender_id(*),
-          parent_message:messages!parent_id(
-            content,
-            sender:profiles!sender_id(full_name, username)
-          ),
-          message_reactions(emoji, user_id)
-        `)
-        .eq("workspace_id", workspaceId)
-        .order("created_at", { ascending: true });
+      const params = new URLSearchParams({
+        workspaceId,
+        userId: user.id
+      });
+      if (channelId) params.append('channelId', channelId);
+      if (recipientId) params.append('recipientId', recipientId);
 
-      if (channelId) {
-        query = query.eq("channel_id", channelId);
-      } else if (recipientId) {
-        query = query.or(`and(sender_id.eq.${user.id},recipient_id.eq.${recipientId}),and(sender_id.eq.${recipientId},recipient_id.eq.${user.id})`);
-      }
-
-        const { data, error } = await query;
-        if (error) {
-          console.error("Error fetching messages:", error);
-        } else {
-          const formattedData = data?.map((m: any) => ({
-            ...m,
-            reactions: m.message_reactions || []
-          })) || [];
-          setMessages(formattedData as Message[]);
+      try {
+        const res = await fetch(`/api/messages?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          // Data mapping should be handled by API return structure, but check for any mismatches
+          // The API returns { data: [...] }
+          setMessages(data.data || []);
         }
-
-      setLoading(false);
+      } catch (error) {
+        console.error("Error fetching messages:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchMessages();
+  }, [workspaceId, channelId, recipientId, user?.id]);
 
-    const channel = supabase
-      .channel(`room:${channelId || recipientId || 'global'}`)
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'messages',
-        filter: channelId ? `channel_id=eq.${channelId}` : undefined
-      }, async (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const msg = payload.new;
-          if (recipientId) {
-            const isRelated = (msg.sender_id === user?.id && msg.recipient_id === recipientId) || 
-                             (msg.sender_id === recipientId && msg.recipient_id === user?.id);
-            if (!isRelated) return;
-          }
-          if (channelId && msg.channel_id !== channelId) return;
+  // Socket setup
+  useEffect(() => {
+    if (!socket || !isConnected) return;
 
-          const sender = await getProfile(msg.sender_id);
-          let parent_message = null;
-          if (msg.parent_id) {
-            const { data: parent } = await supabase
-              .from("messages")
-              .select("content, sender:profiles!sender_id(full_name, username)")
-              .eq("id", msg.parent_id)
-              .single();
-            parent_message = parent;
-          }
+    if (channelId) {
+      socket.emit("join-channel", channelId);
+    }
 
-            const newMessage: Message = { ...msg as Message, sender, parent_message, reactions: [] };
+    const handleNewMessage = (payload: any) => {
+      // Check if message belongs to current view
+      const isChannelMessage = channelId && payload.channel_id === channelId;
+      const isDM = !channelId && recipientId && (
+        (payload.sender_id === recipientId && payload.recipient_id === user?.id) || // From them to me
+        (payload.sender_id === user?.id && payload.recipient_id === recipientId)    // From me to them
+      );
 
-            setMessages(prev => {
-            const existingIndex = prev.findIndex(m => m.id === msg.id || (m.id.startsWith('opt-') && m.content === msg.content && m.sender_id === msg.sender_id));
-            if (existingIndex !== -1) {
-              const newMessages = [...prev];
-              newMessages[existingIndex] = newMessage;
-              return newMessages;
-            }
-            return [...prev, newMessage];
-          });
-        } else if (payload.eventType === 'UPDATE') {
-          setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, ...payload.new } : m));
-        } else if (payload.eventType === 'DELETE') {
-          setMessages(prev => prev.filter(m => m.id !== payload.old.id));
-        }
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'message_reactions'
-      }, (payload) => {
-        console.log('Reaction change received:', payload);
-        if (payload.eventType === 'INSERT') {
-          setMessages(prev => prev.map(m => 
-            m.id === payload.new.message_id 
-              ? { ...m, reactions: [...(m.reactions || []), payload.new as Reaction] } 
-              : m
-          ));
-        } else if (payload.eventType === 'DELETE') {
-          setMessages(prev => prev.map(m => 
-            m.id === payload.old.message_id 
-              ? { ...m, reactions: m.reactions?.filter(r => !(r.user_id === payload.old.user_id && r.emoji === payload.old.emoji)) } 
-              : m
-          ));
-        }
-      })
-      .subscribe();
-
-    const handleLocalOptimistic = async (e: CustomEvent<{ message: Message }>) => {
-      const { message } = e.detail;
-      const sender = await getProfile(message.sender_id);
-      let parent_message = null;
-      if (message.parent_id) {
-        const { data: parent } = await supabase
-          .from("messages")
-          .select("content, sender:profiles!sender_id(full_name, username)")
-          .eq("id", message.parent_id)
-          .single();
-        parent_message = parent;
+      if (isChannelMessage || isDM) {
+        setMessages(prev => {
+          if (prev.some(m => m.id === payload.id)) return prev;
+          return [...prev, payload];
+        });
       }
-      setMessages(prev => [...prev, { ...message, sender, parent_message, reactions: [] }]);
     };
 
-    window.addEventListener('optimistic_message', handleLocalOptimistic as EventListener);
+    socket.on("new_message", handleNewMessage);
+
+    const handleUserUpdated = (updatedUser: any) => {
+      setMessages(prev => prev.map(m => {
+        if (m.sender_id === updatedUser.id) {
+          return {
+            ...m,
+            sender: {
+              ...m.sender!, // exist sender
+              ...updatedUser // overwrite details
+            }
+          };
+        }
+        return m;
+      }));
+    };
+
+    socket.on("user_updated", handleUserUpdated);
+
+    const handleReactionUpdated = (payload: { messageId: string, reaction: Reaction, action: 'added' | 'removed' }) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== payload.messageId) return m;
+
+        const currentReactions = m.reactions || [];
+        let newReactions = [...currentReactions];
+
+        if (payload.action === 'added') {
+          // Avoid duplicates just in case
+          if (!newReactions.some(r => r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji)) {
+            newReactions.push(payload.reaction);
+          }
+        } else {
+          newReactions = newReactions.filter(r => !(r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji));
+        }
+
+        return { ...m, reactions: newReactions };
+      }));
+    };
+
+    socket.on("reaction_updated", handleReactionUpdated);
+
+    // Cleanup
+    return () => {
+      if (channelId) {
+        socket.emit("leave-channel", channelId);
+      }
+      socket.off("new_message", handleNewMessage);
+      socket.off("user_updated", handleUserUpdated);
+      socket.off("reaction_updated", handleReactionUpdated);
+    };
+  }, [socket, isConnected, channelId, recipientId, user?.id]);
+
+  // Handle Optimistic Updates
+  useEffect(() => {
+    const handleOptimistic = (e: CustomEvent) => {
+      const { message } = e.detail;
+      if (
+        (channelId && message.channel_id === channelId) ||
+        (recipientId && message.recipient_id === recipientId) ||
+        (recipientId && message.sender_id === recipientId) // In case we are viewing the other side
+      ) {
+        setMessages(prev => [...prev, message]);
+      }
+    };
+
+    window.addEventListener('optimistic_message', handleOptimistic as EventListener);
 
     return () => {
-      supabase.removeChannel(channel);
-      window.removeEventListener('optimistic_message', handleLocalOptimistic as EventListener);
+      window.removeEventListener('optimistic_message', handleOptimistic as EventListener);
     };
-  }, [workspaceId, channelId, recipientId, user]);
+  }, [channelId, recipientId]);
 
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages.length]); // Scroll on new messages
 
   const handleEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
-    const { error } = await supabase
-      .from("messages")
-      .update({ content: editContent.trim(), is_edited: true, updated_at: new Date().toISOString() })
-      .eq("id", messageId);
+    try {
+      await fetch(`/api/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editContent.trim(), is_edited: true })
+      });
 
-    if (error) toast.error("Failed to edit message");
-    else {
+      // Optimistic update
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, content: editContent.trim(), is_edited: true } : m));
       setEditingId(null);
       setEditContent("");
+    } catch (err) {
+      toast.error("Failed to edit message");
     }
   };
 
-    const handleDelete = async (messageId: string) => {
-      const { error } = await supabase.from("messages").delete().eq("id", messageId);
-      if (error) toast.error("Failed to delete message");
-    };
+  const handleDelete = async (messageId: string) => {
+    try {
+      await fetch(`/api/messages/${messageId}`, { method: 'DELETE' });
+      // Optimistic update
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    } catch (err) {
+      toast.error("Failed to delete message");
+    }
+  };
 
-    const handleTogglePin = async (messageId: string, currentPinStatus: boolean) => {
-      const { error } = await supabase
-        .from("messages")
-        .update({ is_pinned: !currentPinStatus })
-        .eq("id", messageId);
+  const handleTogglePin = async (messageId: string, currentPinStatus: boolean) => {
+    try {
+      await fetch(`/api/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: !currentPinStatus })
+      });
 
-      if (error) {
-        toast.error(`Failed to ${currentPinStatus ? 'unpin' : 'pin'} message`);
-      } else {
-        toast.success(`Message ${currentPinStatus ? 'unpinned' : 'pinned'}`);
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_pinned: !currentPinStatus } : m));
-      }
-    };
+      toast.success(`Message ${currentPinStatus ? 'unpinned' : 'pinned'}`);
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_pinned: !currentPinStatus } : m));
+    } catch (err) {
+      toast.error(`Failed to ${currentPinStatus ? 'unpin' : 'pin'} message`);
+    }
+  };
 
-    const handleToggleReaction = async (messageId: string, emoji: string) => {
-    if (!user) return;
-    const existing = messages.find(m => m.id === messageId)?.reactions?.find(r => r.user_id === user.id && r.emoji === emoji);
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!user?.id) return;
+    try {
+      await fetch(`/api/messages/${messageId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, emoji })
+      });
 
-    if (existing) {
-      await supabase.from("message_reactions").delete().match({ message_id: messageId, user_id: user.id, emoji });
-    } else {
-      await supabase.from("message_reactions").insert({ message_id: messageId, user_id: user.id, emoji });
+      // Optimistic update logic is complex for reactions without full reload, 
+      // but we can try simple toggle based on assumptions or wait for polling.
+      // For now, let's wait for polling or do simple optimistic add/remove if we tracked it perfectly.
+      // Simplified: Re-fetch or rely on polling.
+      // Actually, users expect instant feedback.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== messageId) return m;
+        const existing = m.reactions?.find(r => r.user_id === user.id && r.emoji === emoji);
+        let newReactions = m.reactions || [];
+        if (existing) {
+          newReactions = newReactions.filter(r => r !== existing);
+        } else {
+          newReactions = [...newReactions, { emoji, user_id: user.id }];
+        }
+        return { ...m, reactions: newReactions };
+      }));
+
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -327,9 +358,9 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
     <ScrollArea ref={scrollRef} className="flex-1 min-h-0 p-4">
       <div className="flex flex-col gap-4">
         {messages.map((message) => (
-          <MessageItem 
-            key={message.id} 
-            message={message} 
+          <MessageItem
+            key={message.id}
+            message={message}
             currentUserId={currentUserId}
             editingId={editingId}
             editContent={editContent}
@@ -343,7 +374,7 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
             theme={theme}
           />
         ))}
-        
+
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <div className="h-16 w-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-4">
@@ -355,7 +386,7 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
         )}
         <div ref={bottomRef} />
       </div>
-      
+
       {typingUsers.length > 0 && (
         <div className="flex items-center gap-2 mt-4 text-sm text-zinc-500">
           <div className="flex space-x-1">
@@ -405,14 +436,14 @@ interface MessageItemProps {
   theme?: string;
 }
 
-function MessageItem({ 
-  message, 
-  currentUserId, 
-  editingId, 
-  editContent, 
-  setEditingId, 
-  setEditContent, 
-  handleEdit, 
+function MessageItem({
+  message,
+  currentUserId,
+  editingId,
+  editContent,
+  setEditingId,
+  setEditContent,
+  handleEdit,
   handleDelete,
   handleTogglePin,
   handleToggleReaction,
@@ -437,7 +468,7 @@ function MessageItem({
   const userReactions = message.reactions?.filter((r: Reaction) => r.user_id === currentUserId).map((r: Reaction) => r.emoji) || [];
 
   return (
-    <motion.div 
+    <motion.div
       drag="x"
       dragConstraints={{ left: 0, right: 100 }}
       dragElastic={0.2}
@@ -445,7 +476,7 @@ function MessageItem({
       style={{ x }}
       className="relative group"
     >
-      <motion.div 
+      <motion.div
         style={{ opacity }}
         className="absolute left-0 inset-y-0 -translate-x-full flex items-center pr-4"
       >
@@ -460,25 +491,25 @@ function MessageItem({
           <AvatarFallback>{message.sender?.full_name?.[0] || message.sender?.username?.[0]}</AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-sm hover:underline cursor-pointer">
-                  {message.sender?.full_name || message.sender?.username}
-                </span>
-                {message.sender?.username && (
-                  <span className="text-[11px] text-zinc-500 font-medium">
-                    @{message.sender.username}
-                  </span>
-                )}
-                {message.sender?.badge && (
-                  <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0 uppercase tracking-wider font-bold h-4 border", getBadgeColor(message.sender.badge))}>
-                    {message.sender.badge}
-                  </Badge>
-                )}
-              </div>
-              <span className="text-[10px] text-zinc-500 font-medium">
-                {format(new Date(message.created_at), "h:mm a")}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-sm hover:underline cursor-pointer">
+                {message.sender?.full_name || message.sender?.username}
               </span>
+              {message.sender?.username && (
+                <span className="text-[11px] text-zinc-500 font-medium">
+                  @{message.sender.username}
+                </span>
+              )}
+              {message.sender?.badge && (
+                <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0 uppercase tracking-wider font-bold h-4 border", getBadgeColor(message.sender.badge))}>
+                  {message.sender.badge}
+                </Badge>
+              )}
+            </div>
+            <span className="text-[10px] text-zinc-500 font-medium">
+              {format(new Date(message.created_at), "h:mm a")}
+            </span>
             {message.is_edited && (
               <span className="text-[10px] text-zinc-400">(edited)</span>
             )}
@@ -501,7 +532,7 @@ function MessageItem({
               </p>
             </div>
           )}
-          
+
           {editingId === message.id ? (
             <div className="flex items-center gap-2 mt-1">
               <Input
@@ -527,97 +558,100 @@ function MessageItem({
               </div>
             </div>
           ) : (
-              <div className="flex flex-col items-start gap-1 group/msg">
-                {message.payload?.files && message.payload.files.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-2 w-full max-w-2xl">
-                    {message.payload.files.map((file: any, i: number) => (
-                        <div key={i} className="flex flex-col gap-1 w-full max-w-sm">
-                          {file.type === 'drive' ? (
-                            <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-200 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-950/20 group/file">
-                              <div className="h-10 w-10 rounded bg-white dark:bg-blue-900/30 flex items-center justify-center border border-blue-100 dark:border-blue-800/50">
-                                <Cloud className="h-5 w-5 text-blue-500" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate text-blue-900 dark:text-blue-100">{file.name}</p>
-                                <p className="text-[10px] text-blue-600 dark:text-blue-400">Google Drive File</p>
-                              </div>
-                              <button 
-                                className="p-2 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-                                onClick={() => window.open(file.url, '_blank')}
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : file.type.startsWith('image/') ? (
-
-                          <div className="relative rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 group/image">
-                            <img 
-                              src={file.url} 
-                              alt={file.name} 
-                              className="max-h-[400px] w-auto object-contain cursor-pointer"
-                              onClick={() => window.open(file.url, '_blank')}
-                            />
-                              <button 
-                                className="absolute top-2 right-2 p-1.5 rounded-md bg-zinc-900/50 text-white opacity-0 group-hover/image:opacity-100 transition-opacity hover:bg-zinc-900"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadFile(file.url, file.name);
-                                }}
-                              >
-                                <Download className="h-4 w-4" />
-                              </button>
-
+            <div className="flex flex-col items-start gap-1 group/msg">
+              {message.payload?.files && message.payload.files.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2 w-full max-w-2xl">
+                  {message.payload.files.map((file: any, i: number) => (
+                    <div key={i} className="flex flex-col gap-1 w-full max-w-sm">
+                      {file.type === 'drive' ? (
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-200 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-950/20 group/file">
+                          <div className="h-10 w-10 rounded bg-white dark:bg-blue-900/30 flex items-center justify-center border border-blue-100 dark:border-blue-800/50">
+                            <Cloud className="h-5 w-5 text-blue-500" />
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 group/file">
-                            <div className="h-10 w-10 rounded bg-white dark:bg-zinc-800 flex items-center justify-center border border-zinc-100 dark:border-zinc-700">
-                              <FileIcon className="h-5 w-5 text-zinc-500" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{file.name}</p>
-                              <p className="text-[10px] text-zinc-500">{formatFileSize(file.size)}</p>
-                            </div>
-                              <button 
-                                className="p-2 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadFile(file.url, file.name);
-                                }}
-                              >
-                                <Download className="h-4 w-4" />
-                              </button>
-
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate text-blue-900 dark:text-blue-100">{file.name}</p>
+                            <p className="text-[10px] text-blue-600 dark:text-blue-400">Google Drive File</p>
                           </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                
-                {message.payload?.type === "gif" || message.payload?.type === "sticker" ? (
-                  <div className="relative mt-1 max-w-[300px] rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800">
-                    <img 
-                      src={message.is_encrypted ? message.decryptedContent : message.content} 
-                      alt="GIF" 
-                      className="w-full h-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  (message.content || (message.is_encrypted && !message.decryptedContent)) && (
-                    <p className={cn(
-                      "text-sm leading-relaxed whitespace-pre-wrap break-words",
-                      message.is_encrypted && !message.decryptedContent 
-                        ? "text-zinc-400 italic font-mono bg-zinc-100 dark:bg-zinc-800/50 px-2 py-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700" 
-                        : "text-zinc-800 dark:text-zinc-200"
-                    )}>
-                      {message.is_encrypted 
-                        ? (message.decryptedContent || `[Encrypted: ${message.content.substring(0, 16)}...]`) 
-                        : <MessageContent content={message.content} />}
-                    </p>
-                  )
-                )}
+                          <button
+                            className="p-2 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                            onClick={() => window.open(file.url, '_blank')}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : file.type.startsWith('image/') ? (
 
-              
+                        <div className="relative rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 group/image">
+                          <img
+                            src={file.url}
+                            alt={file.name}
+                            className="max-h-[400px] w-auto object-contain cursor-pointer"
+                            onClick={() => window.open(file.url, '_blank')}
+                          />
+                          <button
+                            className="absolute top-2 right-2 p-1.5 rounded-md bg-zinc-900/50 text-white opacity-0 group-hover/image:opacity-100 transition-opacity hover:bg-zinc-900"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadFile(file.url, file.name);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 group/file">
+                          <div className="h-10 w-10 rounded bg-white dark:bg-zinc-800 flex items-center justify-center border border-zinc-100 dark:border-zinc-700">
+                            <FileIcon className="h-5 w-5 text-zinc-500" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-[10px] text-zinc-500">{formatFileSize(file.size)}</p>
+                          </div>
+                          <button
+                            className="p-2 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadFile(file.url, file.name);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {message.payload?.type === "gif" || message.payload?.type === "sticker" ? (
+                <div className="relative mt-1 max-w-[300px] rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800">
+                  <img
+                    src={message.is_encrypted ? message.decryptedContent : message.content}
+                    alt="GIF"
+                    className="w-full h-auto object-contain"
+                  />
+                </div>
+              ) : (
+                // Only show content if there are no files, OR if content is different from just the filename
+                (message.content &&
+                  (!message.payload?.files || message.payload.files.length === 0 ||
+                    (message.content !== message.payload.files[0]?.name))) && (
+                  <p className={cn(
+                    "text-sm leading-relaxed whitespace-pre-wrap break-words",
+                    message.is_encrypted && !message.decryptedContent
+                      ? "text-zinc-400 italic font-mono bg-zinc-100 dark:bg-zinc-800/50 px-2 py-1 rounded border border-dashed border-zinc-200 dark:border-zinc-700"
+                      : "text-zinc-800 dark:text-zinc-200"
+                  )}>
+                    {message.is_encrypted
+                      ? (message.decryptedContent || `[Encrypted: ${message.content.substring(0, 16)}...]`)
+                      : <MessageContent content={message.content} />}
+                  </p>
+                )
+              )}
+
+
               {groupedReactions && Object.keys(groupedReactions).length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {Object.entries(groupedReactions).map(([emoji, count]) => (
@@ -646,66 +680,66 @@ function MessageItem({
             </div>
           )}
         </div>
-        
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-start gap-1 absolute right-2 top-1 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm p-0.5 z-10">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
-                  <SmilePlus className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-full p-0 border-none shadow-xl" side="top" align="end">
-                <EmojiPicker 
-                  theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                  onEmojiClick={(emojiData) => handleToggleReaction(message.id, emojiData.emoji)}
-                  autoFocusSearch={false}
-                  skinTonesDisabled
-                  previewConfig={{ showPreview: false }}
-                />
-              </PopoverContent>
-            </Popover>
 
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-7 w-7 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-              onClick={() => onReply?.(message)}
-            >
-              <Reply className="h-4 w-4" />
-            </Button>
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-start gap-1 absolute right-2 top-1 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm p-0.5 z-10">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+                <SmilePlus className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0 border-none shadow-xl" side="top" align="end">
+              <EmojiPicker
+                theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
+                onEmojiClick={(emojiData) => handleToggleReaction(message.id, emojiData.emoji)}
+                autoFocusSearch={false}
+                skinTonesDisabled
+                previewConfig={{ showPreview: false }}
+              />
+            </PopoverContent>
+          </Popover>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleTogglePin(message.id, !!message.is_pinned)}>
-                  {message.is_pinned ? (
-                    <>
-                      <PinOff className="mr-2 h-4 w-4" /> Unpin
-                    </>
-                  ) : (
-                    <>
-                      <Pin className="mr-2 h-4 w-4" /> Pin
-                    </>
-                  )}
-                </DropdownMenuItem>
-                
-                {currentUserId === message.sender_id && editingId !== message.id && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+            onClick={() => onReply?.(message)}
+          >
+            <Reply className="h-4 w-4" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleTogglePin(message.id, !!message.is_pinned)}>
+                {message.is_pinned ? (
                   <>
-                    <DropdownMenuItem onClick={() => { setEditingId(message.id); setEditContent(message.content); }}>
-                      <Pencil className="mr-2 h-4 w-4" /> Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(message.id)}>
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete
-                    </DropdownMenuItem>
+                    <PinOff className="mr-2 h-4 w-4" /> Unpin
+                  </>
+                ) : (
+                  <>
+                    <Pin className="mr-2 h-4 w-4" /> Pin
                   </>
                 )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+              </DropdownMenuItem>
+
+              {currentUserId === message.sender_id && editingId !== message.id && (
+                <>
+                  <DropdownMenuItem onClick={() => { setEditingId(message.id); setEditContent(message.content); }}>
+                    <Pencil className="mr-2 h-4 w-4" /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(message.id)}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </motion.div>
   );

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+
 import { useAuth } from "@/components/AuthProvider";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 const ANIMAL_AVATARS = [
-  "Lion", "Tiger", "Bear", "Wolf", "Fox", 
+  "Lion", "Tiger", "Bear", "Wolf", "Fox",
   "Deer", "Eagle", "Owl", "Shark", "Dolphin",
   "Panda", "Koala", "Rabbit", "Cat", "Dog",
   "Elephant", "Giraffe", "Zebra", "Monkey", "Penguin"
@@ -52,7 +53,7 @@ interface ProfileSettingsDialogProps {
 }
 
 export function ProfileSettingsDialog({ open, onOpenChange }: ProfileSettingsDialogProps) {
-  const { profile, refreshProfile } = useAuth();
+  const { user: profile, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [fullName, setFullName] = useState(profile?.full_name || "");
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || "");
@@ -82,24 +83,27 @@ export function ProfileSettingsDialog({ open, onOpenChange }: ProfileSettingsDia
     if (!profile) return;
     setLoading(true);
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        full_name: fullName,
-        avatar_url: avatarUrl,
-        badge: badge,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", profile.id);
+    try {
+      const res = await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName,
+          avatarUrl,
+          badge
+        })
+      });
 
-    if (error) {
-      toast.error(error.message);
-    } else {
+      if (!res.ok) throw new Error("Failed to update profile");
+
       toast.success("Profile updated successfully!");
       await refreshProfile();
       onOpenChange(false);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -107,6 +111,9 @@ export function ProfileSettingsDialog({ open, onOpenChange }: ProfileSettingsDia
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Profile Settings</DialogTitle>
+          <DialogDescription>
+            Update your profile information and avatar
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-6 py-4">
           <div className="flex flex-col items-center gap-4">
@@ -119,100 +126,100 @@ export function ProfileSettingsDialog({ open, onOpenChange }: ProfileSettingsDia
             <p className="text-sm text-zinc-500">Your profile picture</p>
           </div>
 
-            <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label className="flex items-center gap-2">
-                    <ImageIcon className="h-4 w-4 opacity-70" /> Quick Select Avatar
-                  </Label>
-                  <div className="flex gap-2 mb-2">
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1 gap-2 text-xs"
-                      onClick={handleOpenPicker}
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 opacity-70" /> Quick Select Avatar
+              </Label>
+              <div className="flex gap-2 mb-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2 text-xs"
+                  onClick={handleOpenPicker}
+                >
+                  <Cloud className="h-3.5 w-3.5 text-blue-500" />
+                  Google Drive
+                </Button>
+              </div>
+              <ScrollArea className="h-32 w-full rounded-md border border-zinc-200 dark:border-zinc-800 p-2">
+
+                <div className="grid grid-cols-5 gap-2">
+                  {ANIMAL_AVATARS.map((url) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setAvatarUrl(url)}
+                      className={cn(
+                        "relative group aspect-square rounded-lg border-2 transition-all hover:scale-105",
+                        avatarUrl === url
+                          ? "border-zinc-900 dark:border-white ring-2 ring-zinc-900/10 dark:ring-white/10"
+                          : "border-transparent hover:border-zinc-200 dark:hover:border-zinc-800"
+                      )}
                     >
-                      <Cloud className="h-3.5 w-3.5 text-blue-500" />
-                      Google Drive
-                    </Button>
-                  </div>
-                  <ScrollArea className="h-32 w-full rounded-md border border-zinc-200 dark:border-zinc-800 p-2">
+                      <img
+                        src={url}
+                        alt="Avatar option"
+                        className="h-full w-full object-cover rounded-md"
+                      />
+                      {avatarUrl === url && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/20 dark:bg-white/20 rounded-md">
+                          <Check className="h-4 w-4 text-white dark:text-zinc-900" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
 
-                  <div className="grid grid-cols-5 gap-2">
-                    {ANIMAL_AVATARS.map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() => setAvatarUrl(url)}
-                        className={cn(
-                          "relative group aspect-square rounded-lg border-2 transition-all hover:scale-105",
-                          avatarUrl === url 
-                            ? "border-zinc-900 dark:border-white ring-2 ring-zinc-900/10 dark:ring-white/10" 
-                            : "border-transparent hover:border-zinc-200 dark:hover:border-zinc-800"
-                        )}
-                      >
-                        <img 
-                          src={url} 
-                          alt="Avatar option" 
-                          className="h-full w-full object-cover rounded-md"
-                        />
-                        {avatarUrl === url && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/20 dark:bg-white/20 rounded-md">
-                            <Check className="h-4 w-4 text-white dark:text-zinc-900" />
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="avatar" className="flex items-center gap-2 text-[10px] text-zinc-500">
+                Or use a custom URL
+              </Label>
+              <Input
+                id="avatar"
+                value={avatarUrl}
+                onChange={(e) => setAvatarUrl(e.target.value)}
+                placeholder="https://example.com/avatar.png"
+                className="h-8 text-xs"
+              />
+            </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="avatar" className="flex items-center gap-2 text-[10px] text-zinc-500">
-                  Or use a custom URL
-                </Label>
-                <Input
-                  id="avatar"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  placeholder="https://example.com/avatar.png"
-                  className="h-8 text-xs"
-                />
-              </div>
+            <div className="grid gap-2 pt-2">
+              <Label htmlFor="name" className="flex items-center gap-2">
+                <User className="h-4 w-4 opacity-70" /> Full Name
+              </Label>
+              <Input
+                id="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Enter your full name"
+              />
+            </div>
 
-              <div className="grid gap-2 pt-2">
-                <Label htmlFor="name" className="flex items-center gap-2">
-                  <User className="h-4 w-4 opacity-70" /> Full Name
-                </Label>
-                <Input
-                  id="name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Enter your full name"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="badge" className="flex items-center gap-2">
-                  <Award className="h-4 w-4 opacity-70" /> Badge
-                </Label>
-                <Select value={badge} onValueChange={setBadge}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a badge" />
-                  </SelectTrigger>
-                    <SelectContent>
-                      {BADGE_OPTIONS.map((option) => (
-                        <SelectItem key={option.label} value={option.label}>
-                          <div className="flex items-center gap-2">
-                            <div className={cn("w-2 h-2 rounded-full border", option.color.split(' ')[0].replace('/10', ''))} />
-                            {option.label}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                </Select>
-                <p className="text-[10px] text-zinc-500">This badge will appear next to your name</p>
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="badge" className="flex items-center gap-2">
+                <Award className="h-4 w-4 opacity-70" /> Badge
+              </Label>
+              <Select value={badge} onValueChange={setBadge}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a badge" />
+                </SelectTrigger>
+                <SelectContent>
+                  {BADGE_OPTIONS.map((option) => (
+                    <SelectItem key={option.label} value={option.label}>
+                      <div className="flex items-center gap-2">
+                        <div className={cn("w-2 h-2 rounded-full border", option.color.split(' ')[0].replace('/10', ''))} />
+                        {option.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-zinc-500">This badge will appear next to your name</p>
+            </div>
 
 
           </div>

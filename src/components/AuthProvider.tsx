@@ -1,14 +1,14 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { User, Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
 import { generateUserKeyPair, getPrivateKey } from "@/lib/crypto";
 
+// Matches generic User/Profile shape
 type Profile = {
   id: string;
   full_name: string | null;
   username: string | null;
+  email?: string | null;
   avatar_url: string | null;
   status_text: string | null;
   status_emoji: string | null;
@@ -17,105 +17,85 @@ type Profile = {
 };
 
 type AuthContextType = {
-  user: User | null;
-  session: Session | null;
-  profile: Profile | null;
+  user: Profile | null; // We merge User and Profile concepts for simplicity in this migration
   loading: boolean;
   refreshProfile: () => Promise<void>;
+  login: (data: any) => void;
+  logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
-  profile: null,
   loading: true,
-  refreshProfile: async () => {},
+  refreshProfile: async () => { },
+  login: () => { },
+  logout: () => { },
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
+  const fetchUser = async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      const data = await res.json();
 
-    if (!error && data) {
-      setProfile(data);
-      
-      // Handle Encryption Key Generation
-      if (!data.public_key) {
-        try {
-          // Check if private key exists in IDB
-          const existingPrivKey = await getPrivateKey();
-          if (!existingPrivKey) {
-            const publicKeyJWK = await generateUserKeyPair();
-            await supabase
-              .from("profiles")
-              .update({ public_key: publicKeyJWK })
-              .eq("id", userId);
-            
-            // Refresh profile after update
-            const { data: updatedData } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", userId)
-              .single();
-            if (updatedData) setProfile(updatedData);
-          }
-        } catch (err) {
-          console.error("Failed to generate encryption keys:", err);
+      if (data.user) {
+        setUser(data.user);
+
+        // Key Generation Logic (Migrated from previous implementation)
+        if (!data.user.public_key) {
+          await checkAndGenerateKeys(data.user.id);
         }
+      } else {
+        setUser(null);
       }
+    } catch (err) {
+      console.error("Auth check failed:", err);
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user.id);
+  const checkAndGenerateKeys = async (userId: string) => {
+    try {
+      const existingPrivKey = await getPrivateKey();
+      if (!existingPrivKey) {
+        const publicKeyJWK = await generateUserKeyPair();
+        // Update user with new public key using our API
+        await fetch("/api/users/me", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicKey: publicKeyJWK })
+        });
+        await fetchUser(); // Refresh
+      }
+    } catch (err) {
+      console.error("Failed to generate encryption keys:", err);
     }
+  };
+
+  const login = (userData: Profile) => {
+    setUser(userData);
+    checkAndGenerateKeys(userData.id);
+  };
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    window.location.href = "/";
   };
 
   useEffect(() => {
-    // Get initial session
-    const initSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      }
-      setLoading(false);
-    };
-
-    initSession();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    fetchUser();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, refreshProfile }}>
+    <AuthContext.Provider value={{ user, loading, refreshProfile: fetchUser, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

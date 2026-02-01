@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { supabase } from "@/lib/supabase";
+
 import { useAuth } from "@/components/AuthProvider";
 
 interface Mention {
@@ -27,38 +27,22 @@ export function MentionsPopover({ workspaceId }: { workspaceId: string }) {
   const [mentions, setMentions] = React.useState<Mention[]>([]);
   const [loading, setLoading] = React.useState(false);
   const { user } = useAuth();
-  const [profile, setProfile] = React.useState<any>(null);
-
-  React.useEffect(() => {
-    if (user) {
-      supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data }) => setProfile(data));
-    }
-  }, [user]);
 
   const fetchMentions = async () => {
-    if (!profile?.username) return;
-
+    // Note: The API handles fetching the profile username internally or we can just call it.
+    // The API I wrote fetches the user profile using the session.
     setLoading(true);
-    const { data, error } = await supabase
-      .from("messages")
-      .select(`
-        id,
-        content,
-        created_at,
-        sender:sender_id (
-          username,
-          full_name
-        )
-      `)
-      .eq("workspace_id", workspaceId)
-      .ilike("content", `%@${profile.username}%`)
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    if (!error && data) {
-      setMentions(data as any);
+    try {
+      const res = await fetch(`/api/mentions?workspaceId=${workspaceId}`);
+      if (res.ok) {
+        const { data } = await res.json();
+        setMentions(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch mentions:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -81,7 +65,7 @@ export function MentionsPopover({ workspaceId }: { workspaceId: string }) {
                 <AtSign className="h-5 w-5 text-zinc-400" />
               </div>
               <p className="text-xs text-zinc-500 font-medium">No mentions yet</p>
-              <p className="text-[10px] text-zinc-400">When someone mentions you with @{profile?.username || 'username'}, it will appear here.</p>
+              <p className="text-[10px] text-zinc-400">When someone mentions you with @{user?.username || 'username'}, it will appear here.</p>
             </div>
           ) : (
             <div className="flex flex-col">
@@ -95,16 +79,16 @@ export function MentionsPopover({ workspaceId }: { workspaceId: string }) {
                       {mention.sender.full_name?.split(" ").map(n => n[0]).join("") || mention.sender.username[0]}
                     </AvatarFallback>
                   </Avatar>
-                    <div className="flex-1 space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-xs">{mention.sender.full_name || mention.sender.username}</span>
-                        {mention.sender.username && (
-                          <span className="text-[10px] text-zinc-500 font-medium">@{mention.sender.username}</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-zinc-500 line-clamp-2">
-                        {mention.content}
-                      </p>
+                  <div className="flex-1 space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs">{mention.sender.full_name || mention.sender.username}</span>
+                      {mention.sender.username && (
+                        <span className="text-[10px] text-zinc-500 font-medium">@{mention.sender.username}</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-500 line-clamp-2">
+                      {mention.content}
+                    </p>
                     <p className="text-[10px] text-zinc-400">
                       {new Date(mention.created_at).toLocaleDateString()}
                     </p>

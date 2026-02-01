@@ -1,20 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { Hash, Lock, Plus, Settings, LogOut, ChevronDown, UserPlus, Search, FileText } from "lucide-react";
+
+import { Hash, Lock, Plus, Settings, LogOut, ChevronDown, UserPlus, Search, FileText, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuLabel, 
-  DropdownMenuSeparator, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { useRouter } from "next/navigation";
 import { CreateChannelDialog } from "./CreateChannelDialog";
@@ -24,6 +24,7 @@ import { usePresence } from "@/hooks/usePresence";
 import { StatusPicker } from "./StatusPicker";
 import { ProfileSettingsDialog, BADGE_OPTIONS } from "./ProfileSettingsDialog";
 import { useAuth } from "@/components/AuthProvider";
+import { useSocket } from "@/components/SocketProvider";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceSidebarProps {
@@ -62,14 +63,14 @@ interface Workspace {
   slug: string;
 }
 
-export function WorkspaceSidebar({ 
-  workspaceId, 
-  selectedChannelId, 
+export function WorkspaceSidebar({
+  workspaceId,
+  selectedChannelId,
   selectedRecipientId,
-  onSelectChannel, 
+  onSelectChannel,
   onSelectDM
 }: WorkspaceSidebarProps) {
-  const { profile, refreshProfile } = useAuth();
+  const { user: profile, refreshProfile, logout } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<UnreadCount[]>([]);
@@ -80,47 +81,20 @@ export function WorkspaceSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   const { getPresence } = usePresence(workspaceId);
+  const { socket } = useSocket();
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!profile?.id) return;
 
       try {
-        const response = await fetch(`/api/workspaces/${workspaceId}/details?userId=${user.id}`);
+        const response = await fetch(`/api/workspaces/${workspaceId}/details?userId=${profile.id}`);
         if (response.ok) {
           const data = await response.json();
           setWorkspace(data.workspace);
           setChannels(data.channels);
           setMembers(data.members);
           setUnreadCounts(data.unreadCounts);
-        } else {
-          const { data: ws } = await supabase.from("workspaces").select("*").eq("id", workspaceId).single();
-          setWorkspace(ws);
-
-          const { data: chans } = await supabase.from("channels").select("*").eq("workspace_id", workspaceId).order("name");
-          const { data: memberships } = await supabase
-            .from("channel_members")
-            .select("channel_id")
-            .eq("user_id", user.id);
-
-          const memberChannelIds = new Set(memberships?.map(m => m.channel_id) || []);
-          const filteredChannels = chans?.filter(c => !c.is_private || memberChannelIds.has(c.id)) || [];
-          setChannels(filteredChannels);
-
-          const { data: mems } = await supabase
-            .from("workspace_members")
-            .select("profiles(*)")
-            .eq("workspace_id", workspaceId);
-          
-          const mappedMembers = mems?.map((m: any) => m.profiles).filter((p: any) => p && p.id !== user?.id) || [];
-          setMembers(mappedMembers);
-
-          const { data: unreads } = await supabase.rpc("get_unread_counts", {
-            p_workspace_id: workspaceId,
-            p_user_id: user.id
-          });
-          setUnreadCounts(unreads || []);
         }
       } catch (error) {
         console.error("Error fetching workspace details:", error);
@@ -129,62 +103,30 @@ export function WorkspaceSidebar({
 
     fetchData();
 
-    const channelSub = supabase
-      .channel('public:channels')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'channels', filter: `workspace_id=eq.${workspaceId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          setChannels(prev => [...prev, payload.new as Channel].sort((a, b) => a.name.localeCompare(b.name)));
-        } else if (payload.eventType === 'DELETE') {
-          setChannels(prev => prev.filter(c => c.id !== (payload.old as Channel).id));
-        }
-      })
-      .subscribe();
-
-    const messageSub = supabase
-      .channel('public:messages_unread')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `workspace_id=eq.${workspaceId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const msg = payload.new;
-          if (msg.recipient_id === profile?.id && msg.sender_id !== profile?.id) {
-            new Audio('/pop.mp3').play().catch(e => console.error("Error playing sound:", e));
-          }
-        }
-        fetchData();
-      })
-      .subscribe();
-
-    const readSub = supabase
-      .channel('public:member_last_read')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'member_last_read', filter: `workspace_id=eq.${workspaceId}` }, () => {
-        fetchData();
-      })
-      .subscribe();
-
-    const notificationSub = supabase
-      .channel('public:notifications_sound')
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'notifications', 
-        filter: `user_id=eq.${profile?.id}` 
-      }, (payload) => {
-        if (payload.new.type === 'mention') {
-          new Audio('/pop.mp3').play().catch(e => console.error("Error playing sound:", e));
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channelSub);
-      supabase.removeChannel(messageSub);
-      supabase.removeChannel(readSub);
-      supabase.removeChannel(notificationSub);
-    };
   }, [workspaceId, profile?.id]);
 
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.emit("join-workspace", workspaceId);
+
+    const handleUserUpdated = (updatedUser: any) => {
+      setMembers(prev => prev.map(member =>
+        member.id === updatedUser.id ? { ...member, ...updatedUser } : member
+      ));
+    };
+
+    socket.on("user_updated", handleUserUpdated);
+
+    return () => {
+      socket.off("user_updated", handleUserUpdated);
+    };
+  }, [socket, workspaceId]);
+
+  /* destructure logout from useAuth above at line 72 */
+
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    await logout();
   };
 
   const getStatusColor = (userId: string) => {
@@ -195,7 +137,7 @@ export function WorkspaceSidebar({
     return "bg-zinc-400";
   };
 
-  const filteredMembers = members.filter(member => 
+  const filteredMembers = members.filter(member =>
     (member.full_name?.toLowerCase() || "").includes(searchQuery.toLowerCase()) ||
     (member.username?.toLowerCase() || "").includes(searchQuery.toLowerCase())
   );
@@ -242,9 +184,9 @@ export function WorkspaceSidebar({
           <div>
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.1em]">Channels</span>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-6 w-6 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 opacity-60 hover:opacity-100 transition-opacity"
                 onClick={() => setShowCreateChannel(true)}
               >
@@ -258,8 +200,8 @@ export function WorkspaceSidebar({
                   variant="ghost"
                   className={cn(
                     "w-full h-9 font-medium transition-all group rounded-lg justify-start px-3",
-                    selectedChannelId === channel.id 
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" 
+                    selectedChannelId === channel.id
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
                   )}
                   onClick={() => onSelectChannel(channel.id)}
@@ -283,9 +225,9 @@ export function WorkspaceSidebar({
           <div>
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.1em]">Direct Messages</span>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-6 w-6 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 opacity-60 hover:opacity-100 transition-opacity"
               >
                 <Plus className="h-4 w-4" />
@@ -298,8 +240,8 @@ export function WorkspaceSidebar({
                   variant="ghost"
                   className={cn(
                     "w-full h-9 font-medium transition-all group rounded-lg justify-start px-2.5",
-                    selectedRecipientId === member.id 
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" 
+                    selectedRecipientId === member.id
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
                   )}
                   onClick={() => onSelectDM(member.id)}
@@ -363,7 +305,7 @@ export function WorkspaceSidebar({
         <div className="flex items-center gap-3 px-1">
           <div className="relative group cursor-pointer" onClick={() => setShowProfileSettings(true)}>
             <Avatar className="h-9 w-9 border border-zinc-200 dark:border-zinc-800 transition-transform group-hover:scale-105">
-              <AvatarImage src={profile?.avatar_url} />
+              <AvatarImage src={profile?.avatar_url || undefined} />
               <AvatarFallback className="bg-primary/10 text-primary">{profile?.full_name?.[0] || profile?.id?.[0]}</AvatarFallback>
             </Avatar>
             <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-zinc-100 dark:border-zinc-900 bg-emerald-500" />
@@ -392,13 +334,21 @@ export function WorkspaceSidebar({
                 );
               })()}
             </div>
-            <StatusPicker 
-              currentStatus={profile?.status_text} 
-              currentEmoji={profile?.status_emoji}
+            <StatusPicker
+              currentStatus={profile?.status_text || undefined}
+              currentEmoji={profile?.status_emoji || undefined}
               onStatusUpdate={(text, emoji) => refreshProfile()}
             />
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => router.push("/profile")}
+              className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+              title="View Profile"
+            >
+              <User className="h-4 w-4" />
+            </button>
+            <ThemeToggle />          </div>
         </div>
       </div>
 
@@ -416,7 +366,7 @@ export function WorkspaceSidebar({
         onOpenChange={setShowInvite}
       />
 
-      <ProfileSettingsDialog 
+      <ProfileSettingsDialog
         open={showProfileSettings}
         onOpenChange={setShowProfileSettings}
       />

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { 
-  Popover, 
-  PopoverContent, 
-  PopoverTrigger 
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,27 +37,24 @@ export function StatusPicker({ currentStatus = "", currentEmoji = "", onStatusUp
   const handleSave = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ 
-          status_text: statusText, 
-          status_emoji: statusEmoji 
+      const res = await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          statusText,
+          statusEmoji
         })
-        .eq("id", user.id);
+      });
 
-      if (error) throw error;
+      if (!res.ok) throw new Error("Failed to update status");
 
       onStatusUpdate(statusText, statusEmoji);
       setOpen(false);
       toast.success("Status updated");
-      } catch (error: unknown) {
-        console.error("Error updating status:", error);
-        const errorMessage = (error as { message?: string })?.message || "";
-        toast.error("Failed to update status: " + errorMessage);
-      } finally {
+    } catch (error: any) {
+      console.error("Error updating status:", error);
+      toast.error("Failed to update status: " + error.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -97,7 +94,7 @@ export function StatusPicker({ currentStatus = "", currentEmoji = "", onStatusUp
                 className="pl-10 h-10"
               />
               {statusText && (
-                <button 
+                <button
                   onClick={clearStatus}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
                 >
