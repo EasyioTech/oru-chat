@@ -72,7 +72,7 @@ export default function ProfilePage() {
                     <CardContent className="space-y-6">
                         <div className="flex items-start gap-6">
                             <Avatar className="h-24 w-24 border-4 border-white dark:border-zinc-800 shadow-lg">
-                                <AvatarImage src={user.avatar_url} />
+                                <AvatarImage src={user.avatar_url ?? undefined} />
                                 <AvatarFallback className="text-2xl">
                                     {user.full_name?.[0] || user.username?.[0] || "U"}
                                 </AvatarFallback>
