@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,9 @@ export default function WorkspacesPage() {
       }
 
       try {
-        const res = await fetch('/api/workspaces');
+        const res = await fetch('/api/workspaces', {
+          credentials: 'include'
+        });
         if (res.ok) {
           const data = await res.json();
           setWorkspaces(data);
@@ -79,6 +82,7 @@ export default function WorkspacesPage() {
       const res = await fetch('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name: newWorkspaceName })
       });
 

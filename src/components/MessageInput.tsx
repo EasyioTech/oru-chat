@@ -178,7 +178,9 @@ export function MessageInput({
         return;
       }
       try {
-        const res = await fetch(`/api/workspaces/${workspaceId}/details?userId=${user?.id}`); // Reusing details endpoint
+        const res = await fetch(`/api/workspaces/${workspaceId}/details?userId=${user?.id}`, {
+          credentials: 'include'
+        }); // Reusing details endpoint
         if (res.ok) {
           const data = await res.json();
           // This returns all workspace members, filtering for channel might be needed if the API returned it.

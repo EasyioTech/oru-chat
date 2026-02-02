@@ -122,6 +122,7 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
         await fetch(`/api/workspaces/${workspaceId}/read`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({
             userId: user.id,
             channelId: channelId || undefined,
@@ -153,7 +154,9 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
       if (recipientId) params.append('recipientId', recipientId);
 
       try {
-        const res = await fetch(`/api/messages?${params.toString()}`);
+        const res = await fetch(`/api/messages?${params.toString()}`, {
+          credentials: 'include'
+        });
         if (res.ok) {
           const data = await res.json();
           // Data mapping should be handled by API return structure, but check for any mismatches

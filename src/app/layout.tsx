@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 // import { Geist, Geist_Mono } from "next/font/google"; // Disabled due to build network restrictions
 import "./globals.css";
-import { VisualEditsMessenger } from "orchids-visual-edits";
 import Script from "next/script";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/components/AuthProvider";
@@ -40,7 +39,6 @@ export default function RootLayout({
               {children}
             </SocketProvider>
             <Toaster richColors position="top-right" theme="system" />
-            <VisualEditsMessenger />
           </ThemeProvider>
         </AuthProvider>
       </body>

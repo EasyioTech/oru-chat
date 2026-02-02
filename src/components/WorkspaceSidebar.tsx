@@ -88,7 +88,9 @@ export function WorkspaceSidebar({
       if (!profile?.id) return;
 
       try {
-        const response = await fetch(`/api/workspaces/${workspaceId}/details?userId=${profile.id}`);
+        const response = await fetch(`/api/workspaces/${workspaceId}/details?userId=${profile.id}`, {
+          credentials: 'include'
+        });
         if (response.ok) {
           const data = await response.json();
           setWorkspace(data.workspace);

@@ -67,6 +67,7 @@ export function InviteDialog({
       await fetch(`/api/workspaces/${workspaceId}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           inviteCode,
           role: "member",
@@ -101,6 +102,7 @@ export function InviteDialog({
       const res = await fetch(`/api/workspaces/${workspaceId}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           inviteCode,
