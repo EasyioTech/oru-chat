@@ -130,44 +130,44 @@ services:
       - "com.erpcomm.service=cache"
       - "com.erpcomm.description=Redis Cache"
   # NGINX TEMPORARILY DISABLED - Uncomment after fixing nginx.conf on VPS
-  # nginx:
-  #   image: nginx:stable-alpine
-  #   container_name: erpcomm-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./certbot/conf:/etc/letsencrypt:ro
-  #     - ./certbot/www:/var/www/certbot:ro
-  #   depends_on:
-  #     app:
-  #       condition: service_healthy
-  #   networks:
-  #     - erpcomm-network
-  #   healthcheck:
-  #     test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health" ]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 10s
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '0.05'
-  #         memory: 256M
-  #       reservations:
-  #         cpus: '0.02'
-  #         memory: 64M
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   labels:
-  #     - "com.erpcomm.service=proxy"
-  #     - "com.erpcomm.description=Nginx Reverse Proxy"
+  nginx:
+    image: nginx:stable-alpine
+    container_name: erpcomm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - erpcomm-network
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 256M
+        reservations:
+          cpus: '0.02'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.erpcomm.service=proxy"
+      - "com.erpcomm.description=Nginx Reverse Proxy"
 
 volumes:
   postgres_data:
