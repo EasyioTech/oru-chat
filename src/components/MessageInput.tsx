@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { encryptMessage, unwrapChannelKey, getPrivateKey } from "@/lib/crypto";
 import { Send, Smile, Paperclip, Plus, ShieldCheck, Image as ImageIcon, X, Reply, FileIcon, Loader2, Lock, Cloud, UploadCloud } from "lucide-react";
@@ -80,6 +80,8 @@ export function MessageInput({
   const [mentionSearch, setMentionSearch] = useState("");
   const [mentionIndex, setMentionIndex] = useState(-1);
   const [cursorPos, setCursorPos] = useState(0);
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | undefined>();
   const { user } = useAuth();
   const { theme } = useTheme();
   const [openPicker] = useDrivePicker();
@@ -230,6 +232,12 @@ export function MessageInput({
 
     const currentReply = replyingTo;
     onCancelReply?.();
+
+    // Clear typing state and timeout when sending
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    setIsTyping(false);
     onStopTyping?.();
 
     try {
@@ -408,9 +416,26 @@ export function MessageInput({
       setShowMentions(false);
     }
 
-    if (value.trim()) {
+    // Typing indicator with debounce
+    if (value.trim() && !isTyping) {
+      setIsTyping(true);
       onTyping?.();
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout to stop typing after 2 seconds of inactivity
+    if (value.trim()) {
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        onStopTyping?.();
+      }, 2000);
     } else {
+      // Immediately stop typing if input is cleared
+      setIsTyping(false);
       onStopTyping?.();
     }
   };
