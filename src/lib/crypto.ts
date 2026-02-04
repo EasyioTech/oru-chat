@@ -2,6 +2,9 @@
 const DB_NAME = 'enterprise_chat_crypto';
 const STORE_NAME = 'keys';
 
+// Track if we've already warned about crypto unavailability
+let hasWarnedAboutCrypto = false;
+
 // Check if Web Crypto API is available (requires HTTPS or localhost)
 function isCryptoAvailable(): boolean {
   return typeof window !== 'undefined' &&
@@ -22,7 +25,10 @@ async function getDB(): Promise<IDBDatabase> {
 
 export async function generateUserKeyPair(): Promise<string> {
   if (!isCryptoAvailable()) {
-    console.warn('Web Crypto API not available. Encryption features disabled. Use HTTPS or localhost.');
+    if (!hasWarnedAboutCrypto) {
+      console.warn('Web Crypto API not available. Encryption features disabled. Use HTTPS or localhost.');
+      hasWarnedAboutCrypto = true;
+    }
     return ''; // Return empty string to indicate encryption is not available
   }
 
