@@ -77,5 +77,8 @@
     "@types/pg": "^8.11.4",
     "@types/bcryptjs": "^2.4.6",
     "typescript": "^5"
+  },
+  "overrides": {
+    "orchids-visual-edits": "npm:empty-module@^1.0.0"
   }
 }
