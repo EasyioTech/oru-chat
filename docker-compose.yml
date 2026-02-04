@@ -1,6 +1,3 @@
-# docker-compose.yml (WITHOUT NGINX - For Testing)
-version: '3.8'
-
 networks:
   erpcomm-network:
     driver: bridge
