@@ -66,16 +66,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const existingPrivKey = await getPrivateKey();
       if (!existingPrivKey) {
         const publicKeyJWK = await generateUserKeyPair();
-        // Update user with new public key using our API
-        await fetch("/api/users/me", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ publicKey: publicKeyJWK })
-        });
-        await fetchUser(); // Refresh
+
+        // Only update if we successfully generated a key
+        // (empty string means crypto unavailable - HTTP instead of HTTPS)
+        if (publicKeyJWK) {
+          await fetch("/api/users/me", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ publicKey: publicKeyJWK })
+          });
+          await fetchUser(); // Refresh
+        } else {
+          console.log('Encryption keys not generated - Web Crypto API unavailable. Use HTTPS or localhost.');
+        }
       }
     } catch (err) {
       console.error("Failed to generate encryption keys:", err);
+      // Don't block auth flow if key generation fails
     }
   };
 

@@ -5,7 +5,8 @@
  * Example: npx tsx scripts/diagnose-auth.ts http://your-server.com user1
  */
 
-import fetch from 'node-fetch';
+// Node 18+ has native fetch, no import needed
+
 
 const API_URL = process.argv[2] || 'http://localhost';
 const USERNAME = process.argv[3] || 'user1';
