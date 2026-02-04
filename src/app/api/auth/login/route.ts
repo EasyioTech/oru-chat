@@ -63,10 +63,16 @@ export async function POST(req: Request) {
         // Create Session
         const token = await signToken({ sub: user.id, username: user.username });
 
+        // Detect if request is over HTTPS
+        // Check x-forwarded-proto header (set by nginx/reverse proxy) or URL scheme
+        const forwardedProto = req.headers.get('x-forwarded-proto');
+        const isHttps = forwardedProto === 'https' || req.url.startsWith('https://');
+
         // Set Cookie
         (await cookies()).set("session", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            secure: isHttps, // Only set secure flag when actually using HTTPS
+            sameSite: 'lax', // CSRF protection
             maxAge: 60 * 60 * 24 * 7, // 7 days
             path: "/",
         });
