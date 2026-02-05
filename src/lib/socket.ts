@@ -7,17 +7,17 @@ const redisClient = new Redis(redisUrl);
 export const io = new Emitter(redisClient);
 
 // Helper to standardise event emission
-export async function emitToChannel(channelId: string, event: string, data: any) {
+export async function emitToChannel(channelId: string, event: string, data: unknown) {
     if (!channelId) return;
     io.to(`channel:${channelId}`).emit(event, data);
 }
 
-export async function emitToWorkspace(workspaceId: string, event: string, data: any) {
+export async function emitToWorkspace(workspaceId: string, event: string, data: unknown) {
     if (!workspaceId) return;
     io.to(`workspace:${workspaceId}`).emit(event, data);
 }
 
-export async function emitToUser(userId: string, event: string, data: any) {
+export async function emitToUser(userId: string, event: string, data: unknown) {
     if (!userId) return;
     io.to(`user:${userId}`).emit(event, data);
 }

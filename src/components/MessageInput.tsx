@@ -81,7 +81,7 @@ export function MessageInput({
   const [mentionIndex, setMentionIndex] = useState(-1);
   const [cursorPos, setCursorPos] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | undefined>();
+  const typingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const { user } = useAuth();
   const { theme } = useTheme();
   const [openPicker] = useDrivePicker();

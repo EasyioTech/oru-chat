@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
+import { jwtVerify, type JWTPayload } from 'jose';
 
 export interface AuthSession {
     authenticated: boolean;
     userId: string | null;
-    user?: any;
+    user?: JWTPayload;
 }
 
 /**
@@ -37,7 +37,7 @@ export async function validateSession(request: NextRequest): Promise<AuthSession
  * Higher-order function to protect API routes with authentication
  * Usage: export const POST = requireAuth(async (request) => { ... });
  */
-export function requireAuth(handler: (request: NextRequest & { userId: string; user: any }) => Promise<NextResponse>) {
+export function requireAuth(handler: (request: NextRequest & { userId: string; user: JWTPayload }) => Promise<NextResponse>) {
     return async (request: NextRequest) => {
         const session = await validateSession(request);
 
@@ -49,9 +49,9 @@ export function requireAuth(handler: (request: NextRequest & { userId: string; u
         }
 
         // Attach user info to request for use in handler
-        const authenticatedRequest = request as NextRequest & { userId: string; user: any };
+        const authenticatedRequest = request as NextRequest & { userId: string; user: JWTPayload };
         authenticatedRequest.userId = session.userId;
-        authenticatedRequest.user = session.user;
+        authenticatedRequest.user = session.user!; // Safe: validated above
 
         return handler(authenticatedRequest);
     };

@@ -51,9 +51,9 @@ export function StatusPicker({ currentStatus = "", currentEmoji = "", onStatusUp
       onStatusUpdate(statusText, statusEmoji);
       setOpen(false);
       toast.success("Status updated");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating status:", error);
-      toast.error("Failed to update status: " + error.message);
+      toast.error("Failed to update status: " + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setLoading(false);
     }

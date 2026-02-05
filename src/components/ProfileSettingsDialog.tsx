@@ -99,8 +99,8 @@ export function ProfileSettingsDialog({ open, onOpenChange }: ProfileSettingsDia
       toast.success("Profile updated successfully!");
       await refreshProfile();
       onOpenChange(false);
-    } catch (error: any) {
-      toast.error(error.message);
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile');
     } finally {
       setLoading(false);
     }

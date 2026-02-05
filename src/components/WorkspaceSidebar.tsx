@@ -112,7 +112,7 @@ export function WorkspaceSidebar({
 
     socket.emit("join-workspace", workspaceId);
 
-    const handleUserUpdated = (updatedUser: any) => {
+    const handleUserUpdated = (updatedUser: Partial<Member> & { id: string }) => {
       setMembers(prev => prev.map(member =>
         member.id === updatedUser.id ? { ...member, ...updatedUser } : member
       ));
