@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { messages, profiles, reactions } from '@/lib/db/schema';
-import { eq, and, or, asc, desc, aliasedTable, inArray } from 'drizzle-orm';
+import { eq, and, or, asc, desc, aliasedTable, sql } from 'drizzle-orm';
 import { emitToChannel, emitToUser } from '@/lib/socket';
 
 export async function GET(request: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const workspaceId = searchParams.get('workspaceId');
     const channelId = searchParams.get('channelId');
     const recipientId = searchParams.get('recipientId');
-    const userId = searchParams.get('userId'); // Current user ID for reaction filtering if needed
+    const userId = searchParams.get('userId'); // Current user ID for DM queries
 
     if (!workspaceId) {
         return NextResponse.json({ error: 'Workspace ID is required' }, { status: 400 });
@@ -19,61 +19,67 @@ export async function GET(request: NextRequest) {
         const parentMessage = aliasedTable(messages, "parent_message");
         const parentSender = aliasedTable(profiles, "parent_sender");
 
-        let query = db
-            .select({
-                message: messages,
-                sender: profiles,
-                parentContent: parentMessage.content,
-                parentSenderFullName: parentSender.fullName,
-                parentSenderUsername: parentSender.username
-            })
-            .from(messages)
-            .leftJoin(profiles, eq(messages.senderId, profiles.id))
-            .leftJoin(parentMessage, eq(messages.parentId, parentMessage.id))
-            .leftJoin(parentSender, eq(parentMessage.senderId, parentSender.id))
-            .where(eq(messages.workspaceId, workspaceId))
-            .orderBy(asc(messages.createdAt));
-
+        // Build WHERE clause based on query type
+        let whereClause;
         if (channelId) {
-            // @ts-ignore - Dynamic query building
-            query = query.where(and(eq(messages.workspaceId, workspaceId), eq(messages.channelId, channelId)));
+            whereClause = and(
+                eq(messages.workspaceId, workspaceId),
+                eq(messages.channelId, channelId)
+            );
         } else if (recipientId && userId) {
-            // @ts-ignore
-            query = query.where(
-                and(
-                    eq(messages.workspaceId, workspaceId),
-                    or(
-                        and(eq(messages.senderId, userId), eq(messages.recipientId, recipientId)),
-                        and(eq(messages.senderId, recipientId), eq(messages.recipientId, userId))
-                    )
+            whereClause = and(
+                eq(messages.workspaceId, workspaceId),
+                or(
+                    and(eq(messages.senderId, userId), eq(messages.recipientId, recipientId)),
+                    and(eq(messages.senderId, recipientId), eq(messages.recipientId, userId))
                 )
             );
         } else {
             return NextResponse.json({ data: [] }); // Must provide channel or recipient
         }
 
-        const rows = await query as any[];
-
-        // Fetch reactions for these messages
-        const messageIds = rows.map(r => r.message.id);
-        let reactionsMap: Record<string, any[]> = {};
-
-        if (messageIds.length > 0) {
-            const reactionRows = await db
-                .select()
-                .from(reactions)
-                .where(inArray(reactions.messageId, messageIds));
-
-            reactionRows.forEach(r => {
-                if (!reactionsMap[r.messageId!]) {
-                    reactionsMap[r.messageId!] = [];
-                }
-                reactionsMap[r.messageId!].push({
-                    emoji: r.emoji,
-                    user_id: r.userId
-                });
-            });
-        }
+        // Optimized query: fetch messages with reactions aggregated in single query
+        // This eliminates the N+1 query problem
+        const rows = await db
+            .select({
+                message: messages,
+                sender: profiles,
+                parentContent: parentMessage.content,
+                parentSenderFullName: parentSender.fullName,
+                parentSenderUsername: parentSender.username,
+                // Aggregate reactions using PostgreSQL json_agg
+                reactions: sql<any[]>`
+COALESCE(
+    json_agg(
+        json_build_object(
+            'emoji', ${reactions.emoji},
+            'user_id', ${reactions.userId}
+        )
+    ) FILTER(WHERE ${reactions.id} IS NOT NULL),
+    '[]':: json
+)
+                `
+            })
+            .from(messages)
+            .leftJoin(profiles, eq(messages.senderId, profiles.id))
+            .leftJoin(parentMessage, eq(messages.parentId, parentMessage.id))
+            .leftJoin(parentSender, eq(parentMessage.senderId, parentSender.id))
+            .leftJoin(reactions, eq(reactions.messageId, messages.id))
+            .where(whereClause)
+            .groupBy(
+                messages.id,
+                profiles.id,
+                profiles.fullName,
+                profiles.username,
+                profiles.avatarUrl,
+                profiles.badge,
+                parentMessage.id,
+                parentMessage.content,
+                parentSender.id,
+                parentSender.fullName,
+                parentSender.username
+            )
+            .orderBy(asc(messages.createdAt)) as any[]; // Type cast for complex aggregation query
 
         return NextResponse.json({
             data: rows.map(r => ({
@@ -102,29 +108,34 @@ export async function GET(request: NextRequest) {
                         username: r.parentSenderUsername
                     }
                 } : null,
-                reactions: reactionsMap[r.message.id] || []
+                reactions: r.reactions || []
             }))
         });
 
     } catch (error: any) {
+        console.error('Error fetching messages:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
 
 export async function POST(request: NextRequest) {
     try {
+        // Validate session and extract userId from validated token
+        const session = await require('@/middleware/auth').validateSession(request);
+
+        if (!session.authenticated || !session.userId) {
+            return NextResponse.json(
+                { error: 'Unauthorized - Please log in' },
+                { status: 401 }
+            );
+        }
+
+        const senderId = session.userId; // Server-side validated user ID
+
         const body = await request.json();
         const { workspaceId, channelId, recipientId, content, parentId } = body;
-        const senderId = request.headers.get('x-user-id'); // Assuming middleware sets this or we parse session? 
-        // Wait, current auth implementation is via cookies/session in route handler usually. 
-        // But for time being, let's assume body or we need to extract from session.
-        // In `src/app/api/auth/login/route.ts` we set a cookie.
-        // Let's use `auth()` or similar helper if available, or just check body for senderId if client sends it (insecure but unblocks).
-        // The read route example used `const { userId ... } = body;`. I'll follow that pattern for now.
 
-        const { senderId: bodySenderId } = body;
-
-        if (!workspaceId || !content || !bodySenderId) {
+        if (!workspaceId || !content) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
@@ -132,14 +143,14 @@ export async function POST(request: NextRequest) {
             workspaceId,
             channelId,
             recipientId,
-            senderId: bodySenderId,
+            senderId, // From validated session, not client
             content,
             parentId,
             payload: body.payload || {}
         }).returning();
 
         // Fetch sender details for response
-        const [sender] = await db.select().from(profiles).where(eq(profiles.id, bodySenderId));
+        const [sender] = await db.select().from(profiles).where(eq(profiles.id, senderId));
 
         const formattedSender = sender ? {
             id: sender.id,
@@ -159,7 +170,7 @@ export async function POST(request: NextRequest) {
             await emitToChannel(channelId, "new_message", payload);
         } else if (recipientId) {
             await emitToUser(recipientId, "new_message", payload);
-            await emitToUser(bodySenderId, "new_message", payload);
+            await emitToUser(senderId, "new_message", payload);
         }
 
         return NextResponse.json({

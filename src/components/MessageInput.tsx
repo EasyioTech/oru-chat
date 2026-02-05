@@ -327,11 +327,12 @@ export function MessageInput({
       const res = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // CRITICAL: Include session cookie for authentication
         body: JSON.stringify({
           workspaceId,
           channelId,
           recipientId,
-          senderId: user.id,
+          // senderId removed - server extracts from session
           content: messageContent || (uploadedFiles.length > 0 ? uploadedFiles[0].name : ""),
           is_encrypted: isEncrypted,
           parentId: currentReply?.id,
