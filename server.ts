@@ -4,6 +4,7 @@ import next from "next";
 import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Redis } from "ioredis";
+import { jwtVerify } from "jose";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
