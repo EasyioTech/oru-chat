@@ -12,7 +12,7 @@ services:
     container_name: erpcomm-app
     restart: unless-stopped
     ports:
-      - "3008:3000" # Expose for direct access during development
+      - "3008:443" # Expose for direct access during development
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
