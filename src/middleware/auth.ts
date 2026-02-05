@@ -12,7 +12,7 @@ export interface AuthSession {
  * Returns authentication status and user ID
  */
 export async function validateSession(request: NextRequest): Promise<AuthSession> {
-    const token = request.cookies.get('token')?.value;
+    const token = request.cookies.get('session')?.value;
 
     if (!token) {
         return { authenticated: false, userId: null };
