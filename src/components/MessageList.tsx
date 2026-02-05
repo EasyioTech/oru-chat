@@ -174,13 +174,21 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
 
   // Socket setup
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    if (!socket || !isConnected) {
+      console.log("[MessageList] Socket not ready:", { socket: !!socket, isConnected });
+      return;
+    }
+
+    console.log("[MessageList] Setting up socket listeners for channelId:", channelId);
 
     if (channelId) {
+      console.log("[MessageList] Emitting join-channel:", channelId);
       socket.emit("join-channel", channelId);
     }
 
     const handleNewMessage = (payload: any) => {
+      console.log("[MessageList] Received new_message event:", payload);
+
       // Check if message belongs to current view
       const isChannelMessage = channelId && payload.channel_id === channelId;
       const isDM = !channelId && recipientId && (
@@ -188,11 +196,19 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
         (payload.sender_id === user?.id && payload.recipient_id === recipientId)    // From me to them
       );
 
+      console.log("[MessageList] Message filter:", { isChannelMessage, isDM, channelId, recipientId });
+
       if (isChannelMessage || isDM) {
         setMessages(prev => {
-          if (prev.some(m => m.id === payload.id)) return prev;
+          if (prev.some(m => m.id === payload.id)) {
+            console.log("[MessageList] Message already exists, skipping");
+            return prev;
+          }
+          console.log("[MessageList] Adding new message to state");
           return [...prev, payload];
         });
+      } else {
+        console.log("[MessageList] Message filtered out (not for this channel/DM)");
       }
     };
 

@@ -30,7 +30,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // Actually better to connect only when mounted.
 
         // We are using custom server on same port (3000), so path defaults to /socket.io
-        const socketInstance = io(process.env.NEXT_PUBLIC_APP_URL || "", {
+        const socketUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        console.log("[SocketProvider] Connecting to:", socketUrl || "relative path (same origin)");
+
+        const socketInstance = io(socketUrl, {
             path: "/socket.io",
             addTrailingSlash: false,
         });
