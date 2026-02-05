@@ -11,8 +11,8 @@ services:
         NEXT_PUBLIC_GIPHY_API_KEY: ${NEXT_PUBLIC_GIPHY_API_KEY}
     container_name: erpcomm-app
     restart: unless-stopped
-    ports:
-      - "3008:3000" # Expose for direct access during development
+    # ports:
+    #   - "3008:3000" # Expose for direct access during development
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
