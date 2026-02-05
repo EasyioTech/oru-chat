@@ -4,8 +4,8 @@ import { channelMembers, profiles, workspaceMembers, channels } from '@/lib/db/s
 import { eq, and, notInArray } from 'drizzle-orm';
 
 // GET /api/channels/[channelId]/members
-export async function GET(request: NextRequest, { params }: { params: { channelId: string } }) {
-    const channelId = params.channelId;
+export async function GET(request: NextRequest, { params }: { params: Promise<{ channelId: string }> }) {
+    const { channelId } = await params;
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
 
@@ -27,11 +27,11 @@ export async function GET(request: NextRequest, { params }: { params: { channelI
         /* 
            This can be complex in one query. Simplest: Fetch all workspace members, filter out those in `members`.
         */
-        let nonMembers: { userId: string, profiles: any }[] = [];
+        const nonMembers: typeof members = [];
         if (workspaceId) {
             const currentMemberIds = members.map(m => m.userId);
 
-            let query = db.select({
+            const query = db.select({
                 userId: workspaceMembers.userId,
                 profiles: profiles
             })
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: { channelI
                 .where(eq(workspaceMembers.workspaceId, workspaceId));
 
             const allWorkspaceMembers = await query;
-            nonMembers = allWorkspaceMembers.filter(wm => !currentMemberIds.includes(wm.userId));
+            nonMembers.push(...allWorkspaceMembers.filter(wm => wm.userId && !currentMemberIds.includes(wm.userId)));
         }
 
         return NextResponse.json({
@@ -56,7 +56,8 @@ export async function GET(request: NextRequest, { params }: { params: { channelI
 }
 
 // POST /api/channels/[channelId]/members - Add member
-export async function POST(request: NextRequest, { params }: { params: { channelId: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ channelId: string }> }) {
+    const { channelId } = await params;
     try {
         const body = await request.json();
         const { userId } = body;
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest, { params }: { params: { channel
         if (!userId) return NextResponse.json({ error: 'User ID required' }, { status: 400 });
 
         await db.insert(channelMembers).values({
-            channelId: params.channelId,
+            channelId,
             userId,
             role: 'member'
         });
@@ -76,7 +77,8 @@ export async function POST(request: NextRequest, { params }: { params: { channel
 }
 
 // DELETE /api/channels/[channelId]/members - Remove member
-export async function DELETE(request: NextRequest, { params }: { params: { channelId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ channelId: string }> }) {
+    const { channelId } = await params;
     try {
         const { searchParams } = new URL(request.url);
         const userId = searchParams.get('userId');
@@ -85,7 +87,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { chann
 
         await db.delete(channelMembers)
             .where(and(
-                eq(channelMembers.channelId, params.channelId),
+                eq(channelMembers.channelId, channelId),
                 eq(channelMembers.userId, userId)
             ));
 

@@ -19,7 +19,6 @@ const eslintConfig = [
       // Downgrade these from errors to warnings to allow builds to succeed
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": "warn",
-      "@typescript-eslint/prefer-const": "warn",
       "@typescript-eslint/no-require-imports": "warn",
       "react/no-unescaped-entities": "warn",
       "react-hooks/exhaustive-deps": "warn",

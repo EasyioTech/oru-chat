@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { workspaceInvitations } from '@/lib/db/schema';
 
 // POST /api/workspaces/[workspaceId]/invite
-export async function POST(request: NextRequest, { params }: { params: { workspaceId: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ workspaceId: string }> }) {
+    const { workspaceId } = await params;
     try {
         const body = await request.json();
         const { email, inviteCode, role, createdBy } = body;
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest, { params }: { params: { workspa
         // We can also generate inviteCode here if not provided, but the dialog sends it.
 
         await db.insert(workspaceInvitations).values({
-            workspaceId: params.workspaceId,
+            workspaceId,
             email: email || null,
             inviteCode,
             role: role || 'member',
