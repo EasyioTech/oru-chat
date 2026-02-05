@@ -33,11 +33,13 @@ export async function validateSession(request: NextRequest): Promise<AuthSession
         const { payload } = await jwtVerify(token, secret);
 
         console.log('[Auth Debug] Token verified. Payload keys:', Object.keys(payload));
-        console.log('[Auth Debug] UserId from payload:', payload.userId);
+        // sub is the standard claim for subject (userId)
+        const userId = (payload.sub || payload.userId) as string;
+        console.log('[Auth Debug] UserId resolved:', userId);
 
         return {
             authenticated: true,
-            userId: payload.userId as string,
+            userId: userId,
             user: payload
         };
     } catch (error: any) {
