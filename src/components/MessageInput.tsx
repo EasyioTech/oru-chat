@@ -33,6 +33,18 @@ interface PendingFile {
   size?: number;
 }
 
+interface DrivePickerDoc {
+  name: string;
+  url: string;
+  iconUrl?: string;
+  sizeBytes?: number;
+}
+
+interface DrivePickerData {
+  action: string;
+  docs: DrivePickerDoc[];
+}
+
 interface MessageInputProps {
   workspaceId: string;
   channelId?: string;
@@ -95,7 +107,7 @@ export function MessageInput({
       showUploadFolders: true,
       supportDrives: true,
       multiselect: true,
-      callbackFunction: (data) => {
+      callbackFunction: (data: DrivePickerData) => {
         if (data.action === "picked") {
           const newDriveFiles: PendingFile[] = data.docs.map(doc => ({
             name: doc.name,
@@ -292,7 +304,7 @@ export function MessageInput({
 
       const optimisticId = `opt-${Date.now()}`;
       let messageContent = finalMsgContent;
-      let payload: Record<string, any> = {
+      let payload: Record<string, string | number | { url: string; name: string; type: string; size: number }[] | string[]> = {
         type: uploadedFiles.length > 0 ? (uploadedFiles[0].type.startsWith('image/') ? 'image' : 'file') : type,
         optimistic_id: optimisticId,
         files: uploadedFiles,
@@ -564,7 +576,7 @@ export function MessageInput({
                     Replying to {replyingTo.sender?.full_name || replyingTo.sender?.username}
                   </p>
                   <p className="text-xs text-zinc-500 truncate italic mt-0.5">
-                    {replyingTo.content}
+                    {String(replyingTo.content || '')}
                   </p>
                 </div>
               </div>
