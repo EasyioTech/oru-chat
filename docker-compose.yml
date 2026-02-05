@@ -11,8 +11,8 @@ services:
         NEXT_PUBLIC_GIPHY_API_KEY: ${NEXT_PUBLIC_GIPHY_API_KEY}
     container_name: erpcomm-app
     restart: unless-stopped
-    # ports:
-    #   - "3008:3000" # Expose for direct access during development
+    ports:
+      - "3008:3000" # Expose for direct access during development
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
@@ -133,7 +133,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80" # HTTP (Certificate validation)
-      - "3008:443" # HTTPS on port 3008 (Target Access)
+      # - "3008:443" # HTTPS on port 3008 (Target Access)
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt # RW access for dummy certs
@@ -170,6 +170,8 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt # RW access to write certs
       - ./certbot/www:/var/www/certbot
       - ./scripts:/scripts:ro
+    ports:
+      - "80:80"
     entrypoint: [ "/bin/sh", "/scripts/certbot-entrypoint.sh" ]
     depends_on:
       nginx:
