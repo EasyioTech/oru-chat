@@ -132,7 +132,7 @@ services:
     container_name: erpcomm-nginx
     restart: unless-stopped
     ports:
-      - "80:80" # Standard HTTP (Redirects & Certbot)
+      - "8080:80" # HTTP (Port 80 is occupied, using 8080)
       - "443:443" # Standard HTTPS
       - "3008:3008" # Custom HTTPS
     volumes:
