@@ -22,7 +22,7 @@ if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
         -keyout "$CERT_DIR/privkey.pem" \
         -out "$CERT_DIR/fullchain.pem" \
         -days 1 \
-        -subj "/CN=localhost"
+        -subj "/CN=orutest.site"
     echo "Dummy certificate generated."
 fi
 
