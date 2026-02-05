@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useSocket } from "@/components/SocketProvider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -140,38 +140,37 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
   }, [messages.length, user?.id, workspaceId, channelId, recipientId]);
 
   // Fetch Messages
-  useEffect(() => {
-    const fetchMessages = async () => {
-      if (!user?.id) return;
-      // Only set loading on first load to avoid flickering during polling
-      if (messages.length === 0) setLoading(true);
+  const fetchMessages = useCallback(async () => {
+    if (!user?.id) return;
+    // Only set loading on first load (if empty) to avoid flickering
+    if (messages.length === 0) setLoading(true);
 
-      const params = new URLSearchParams({
-        workspaceId,
-        userId: user.id
+    const params = new URLSearchParams({
+      workspaceId,
+      userId: user.id
+    });
+    if (channelId) params.append('channelId', channelId);
+    if (recipientId) params.append('recipientId', recipientId);
+
+    try {
+      const res = await fetch(`/api/messages?${params.toString()}`, {
+        credentials: 'include'
       });
-      if (channelId) params.append('channelId', channelId);
-      if (recipientId) params.append('recipientId', recipientId);
-
-      try {
-        const res = await fetch(`/api/messages?${params.toString()}`, {
-          credentials: 'include'
-        });
-        if (res.ok) {
-          const data = await res.json();
-          // Data mapping should be handled by API return structure, but check for any mismatches
-          // The API returns { data: [...] }
-          setMessages(data.data || []);
-        }
-      } catch (error) {
-        console.error("Error fetching messages:", error);
-      } finally {
-        setLoading(false);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.data || []);
       }
-    };
-
-    fetchMessages();
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+    } finally {
+      setLoading(false);
+    }
   }, [workspaceId, channelId, recipientId, user?.id]);
+
+  // Initial Fetch & Poll
+  useEffect(() => {
+    fetchMessages();
+  }, [fetchMessages]);
 
   // Socket setup
   useEffect(() => {
@@ -198,6 +197,13 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
     };
 
     socket.on("new_message", handleNewMessage);
+
+    const handleReconnect = () => {
+      console.log("Socket reconnected, syncing messages...");
+      fetchMessages();
+    };
+
+    socket.on("connect", handleReconnect);
 
     const handleUserUpdated = (updatedUser: any) => {
       setMessages(prev => prev.map(m => {
@@ -244,6 +250,7 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
         socket.emit("leave-channel", channelId);
       }
       socket.off("new_message", handleNewMessage);
+      socket.off("connect", handleReconnect);
       socket.off("user_updated", handleUserUpdated);
       socket.off("reaction_updated", handleReactionUpdated);
     };

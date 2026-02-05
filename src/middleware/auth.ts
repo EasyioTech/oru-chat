@@ -23,19 +23,14 @@ export async function validateSession(request: NextRequest): Promise<AuthSession
     try {
         const secretStr = process.env.JWT_SECRET;
         if (!secretStr) {
-            console.error('[Auth Error] JWT_SECRET is missing in environment');
             throw new Error('JWT_SECRET is not defined');
         }
-        // Log secret length to verify it's loaded (don't log value)
-        console.log('[Auth Debug] JWT_SECRET loaded. Length:', secretStr.length);
 
         const secret = (new TextEncoder() as any).encode(secretStr);
         const { payload } = await jwtVerify(token, secret);
 
-        console.log('[Auth Debug] Token verified. Payload keys:', Object.keys(payload));
         // sub is the standard claim for subject (userId)
         const userId = (payload.sub || payload.userId) as string;
-        console.log('[Auth Debug] UserId resolved:', userId);
 
         return {
             authenticated: true,
@@ -43,11 +38,7 @@ export async function validateSession(request: NextRequest): Promise<AuthSession
             user: payload
         };
     } catch (error: any) {
-        console.error('[Auth Error] Session validation failed. Details:', {
-            message: error.message,
-            code: error.code,
-            name: error.name
-        });
+        console.error('Session validation failed:', error.message);
         return { authenticated: false, userId: null };
     }
 }

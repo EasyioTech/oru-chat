@@ -38,11 +38,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         socketInstance.on("connect", () => {
             setIsConnected(true);
             console.log("Socket connected:", socketInstance.id);
-
-            // If user is logged in, join their personal room
-            if (user) {
-                socketInstance.emit("join-user", user.id);
-            }
+            // Server automatically joins user to their room based on session cookie
         });
 
         socketInstance.on("disconnect", () => {
