@@ -136,11 +136,44 @@ services:
       - "8443:443" # HTTPS on port 8443 (your current setup)
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro # SSL certificates from Let's Encrypt
-      - ./certbot/www:/var/www/certbot:ro # ACME challenge for cert renewal
+      - /etc/letsencrypt:/etc/letsencrypt # RW access for dummy certs
+      - ./certbot/www:/var/www/certbot:ro
+      - ./scripts:/scripts:ro
+    command: [ "/bin/sh", "/scripts/nginx-start.sh" ]
     depends_on:
       app:
         condition: service_healthy
+    networks:
+      - erpcomm-network
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 256M
+    logging:
+      driver: "json-file"
+    labels:
+      - "com.erpcomm.description=Nginx Proxy"
+
+  certbot:
+    image: certbot/certbot
+    container_name: erpcomm-certbot
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt # RW access to write certs
+      - ./certbot/www:/var/www/certbot
+      - ./scripts:/scripts:ro
+    entrypoint: [ "/bin/sh", "/scripts/certbot-entrypoint.sh" ]
+    depends_on:
+      nginx:
+        condition: service_started
     networks:
       - erpcomm-network
     healthcheck:
