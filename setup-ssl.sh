@@ -18,8 +18,8 @@ fi
 # Variables
 DOMAIN="orutest.site"
 WWW_DOMAIN="www.orutest.site"
-EMAIL="your-email@example.com"  # UPDATE THIS!
-PROJECT_DIR="/root/ERPComm"      # UPDATE THIS if different!
+EMAIL="easyio.tech@gmail.com"  # UPDATE THIS!
+PROJECT_DIR="/root/oru-chat"      # UPDATE THIS if different!
 
 echo "Configuration:"
 echo "  Domain: $DOMAIN"

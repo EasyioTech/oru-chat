@@ -4,37 +4,45 @@ Your VPS hosts multiple Docker projects on different ports. This guide provides 
 
 ---
 
-## Current Setup (from screenshot)
+## Current Setup (from your VPS)
 
-- **erpcomm-app**: 3008:3000
-- **erpcomm-db**: 5435:5432  
-- **erpcomm-nginx**: 8080:80, 8443:443
-- **erpcomm-redis**: 6380:6379
+**ERPComm Project:**
+- **erpcomm-app**: Port **3008** → Container 3000 (direct app access)
+- **erpcomm-db**: Port 5435 → Container 5432
+- **erpcomm-nginx**: Port 8080 → Container 80, Port 8443 → Container 443
+- **erpcomm-redis**: Port 6380 → Container 6379
 
-✅ **Good news:** Your ports don't conflict with standard 80/443, so we have options!
+**Current Access:**
+- Direct app: `http://72.61.243.152:3008` ✅ (what you're using now)
+- Via Nginx: `http://72.61.243.152:8080` or `https://72.61.243.152:8443` (if configured)
 
 ---
 
-## Option 1: Simple Port-Based Access (Quick Setup)
+## Goal: Access via Domain
 
-Keep your current ports and access via `https://orutest.site:8443`
+You want to access your app using `https://orutest.site` instead of `http://72.61.243.152:3008`
+
+---
+
+## Option 1: Domain with Port (Simplest - 5 minutes)
+
+Access via `https://orutest.site:3008` 
 
 ### Pros
-- ✅ No changes to existing services
-- ✅ Simple setup
-- ✅ Works immediately
+- ✅ No changes to your current port setup
+- ✅ Works with your existing direct app access
+- ✅ Simple SSL setup
 
 ### Cons
-- ❌ Users must type port in URL (`https://orutest.site:8443`)
-- ❌ Less professional appearance
+- ❌ Users must type port in URL
 
-### Setup (5 minutes)
+### Setup Steps
 
 ```bash
 # 1. Set DNS A record
 # orutest.site → 72.61.243.152
 
-# 2. Generate SSL for port 8443
+# 2. SSH into VPS
 ssh root@72.61.243.152
 cd /path/to/ERPComm
 
