@@ -21,7 +21,11 @@ export async function validateSession(request: NextRequest): Promise<AuthSession
     }
 
     try {
-        const secret = new TextEncoder().encode(process.env.JWT_SECRET || '');
+        const secretStr = process.env.JWT_SECRET;
+        if (!secretStr) {
+            throw new Error('JWT_SECRET is not defined');
+        }
+        const secret = (new TextEncoder() as any).encode(secretStr);
         const { payload } = await jwtVerify(token, secret);
 
         return {
