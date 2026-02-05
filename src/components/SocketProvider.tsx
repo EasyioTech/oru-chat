@@ -32,7 +32,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             path: "/socket.io",
             addTrailingSlash: false,
             withCredentials: true,
-            transports: ['websocket', 'polling']
+            transports: ['polling', 'websocket']
         });
 
         socketInstance.on("connect", () => {
