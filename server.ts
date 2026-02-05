@@ -34,7 +34,6 @@ app.prepare().then(() => {
     const io = new Server(httpServer);
 
     // Redis Adapter for scaling (if REDIS_URL is present)
-    // Redis Adapter for scaling (if REDIS_URL is present)
     if (process.env.REDIS_URL) {
         const pubClient = new Redis(process.env.REDIS_URL);
         const subClient = pubClient.duplicate();
@@ -47,8 +46,7 @@ app.prepare().then(() => {
             const cookieHeader = socket.request.headers.cookie;
             if (!cookieHeader) return next(new Error("Authentication error"));
 
-            // Parse cookies manually to avoid external deps if not strictly needed
-            // We need the 'session' cookie
+            // Parse cookies manually
             const getCookie = (name: string) => {
                 const match = cookieHeader.match(new RegExp('(^| )' + name + '=([^;]+)'));
                 if (match) return match[2];
@@ -58,11 +56,16 @@ app.prepare().then(() => {
             const token = getCookie("session");
             if (!token) return next(new Error("Authentication error"));
 
-            // Dynamic import to avoid issues with top-level imports in some environments
-            // leveraging the shared library
-            const { verifyToken } = await import("./src/lib/auth");
+            // Inline JWT verification using jose library
+            const secretStr = process.env.JWT_SECRET;
+            if (!secretStr) {
+                console.error("JWT_SECRET missing in environment");
+                return next(new Error("Server configuration error"));
+            }
 
-            const payload = await verifyToken(token);
+            const secret = new TextEncoder().encode(secretStr);
+            const { payload } = await jwtVerify(token, secret);
+
             if (!payload || !payload.sub) {
                 return next(new Error("Authentication error: Invalid token"));
             }
@@ -83,7 +86,6 @@ app.prepare().then(() => {
 
     io.on("connection", (socket) => {
         // console.log("Client connected", socket.id, (socket as any).username);
-
 
         socket.on("join-workspace", (workspaceId) => {
             socket.join(`workspace:${workspaceId}`);
