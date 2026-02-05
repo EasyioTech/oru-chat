@@ -1,10 +1,14 @@
 import { hash, compare } from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 
-if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is not defined');
+
+function getJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('JWT_SECRET is not defined');
+    }
+    return new TextEncoder().encode(secret);
 }
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
 export async function hashPassword(password: string): Promise<string> {
     return hash(password, 10);
@@ -19,12 +23,12 @@ export async function signToken(payload: Record<string, unknown>): Promise<strin
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('7d')
-        .sign(JWT_SECRET);
+        .sign(getJwtSecret());
 }
 
 export async function verifyToken(token: string) {
     try {
-        const { payload } = await jwtVerify(token, JWT_SECRET);
+        const { payload } = await jwtVerify(token, getJwtSecret());
         return payload;
     } catch (error) {
         return null;
