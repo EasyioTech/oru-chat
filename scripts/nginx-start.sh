@@ -1,10 +1,16 @@
 #!/bin/sh
 set -e
 
+echo "Starting Nginx wrapper..."
+
+# Install openssl (required for certificate generation)
+if ! command -v openssl &> /dev/null; then
+    echo "Installing openssl..."
+    apk add --no-cache openssl
+fi
+
 DOMAIN="orutest.site"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
-
-echo "Starting Nginx wrapper..."
 
 # Ensure directory exists
 mkdir -p "$CERT_DIR"
