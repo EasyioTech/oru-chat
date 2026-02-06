@@ -8,32 +8,8 @@
     ],
     "engine": "redis",
     "redis_address": "redis://redis:6379",
-    "namespaces": [
-        {
-            "name": "channel",
-            "presence": true,
-            "join_leave": true,
-            "history_size": 100,
-            "history_ttl": "300s",
-            "allow_subscribe_for_client": true
-        },
-        {
-            "name": "user",
-            "presence": false,
-            "join_leave": false,
-            "history_size": 0,
-            "allow_subscribe_for_client": true
-        },
-        {
-            "name": "workspace",
-            "presence": true,
-            "join_leave": true,
-            "history_size": 50,
-            "history_ttl": "180s",
-            "allow_subscribe_for_client": true
-        }
-    ],
-    "log_level": "info",
+    "allow_subscribe_for_client": true,
+    "log_level": "debug",
     "health": true,
     "admin": true
 }
