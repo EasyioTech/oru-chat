@@ -6,24 +6,32 @@ import { useAuth } from "@/components/AuthProvider";
 
 export function useTypingIndicator(workspaceId: string, channelId?: string, recipientId?: string) {
   const [typingUsers, setTypingUsers] = useState<Array<{ id: string; full_name?: string; username?: string }>>([]);
-  const { socket, isConnected } = useSocket();
+  const { subscribe, unsubscribe, isConnected, client } = useSocket();
   const { user } = useAuth();
   const typingTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
 
-  // Listen for typing events
+  // Listen for typing events using Centrifuge subscriptions
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    if (!isConnected || !subscribe) return;
 
-    const handleUserTyping = ({ channelId: typingChannelId, username }: { channelId?: string, username: string }) => {
-      // Only show typing if it's for the current channel/conversation
-      if (channelId && typingChannelId !== channelId) return;
+    // Determine the channel to subscribe to
+    const typingChannel = channelId
+      ? `workspace:${workspaceId}:channel:${channelId}:typing`
+      : recipientId
+        ? `workspace:${workspaceId}:dm:${recipientId}:typing`
+        : null;
+
+    if (!typingChannel) return;
+
+    const handleUserTyping = (data: { username: string; userId?: string }) => {
+      const { username, userId } = data;
 
       // Don't show own typing
-      if (username === user?.username) return;
+      if (username === user?.username || userId === user?.id) return;
 
       setTypingUsers(prev => {
         if (prev.some(u => u.username === username)) return prev;
-        return [...prev, { id: username, username, full_name: username }];
+        return [...prev, { id: userId || username, username, full_name: username }];
       });
 
       // Auto-remove typing indicator after 3 seconds
@@ -37,29 +45,46 @@ export function useTypingIndicator(workspaceId: string, channelId?: string, reci
       }, 3000);
     };
 
-    socket.on('user_typing', handleUserTyping);
+    const subscription = subscribe(typingChannel, handleUserTyping);
 
     return () => {
-      socket.off('user_typing', handleUserTyping);
+      if (typingChannel) {
+        unsubscribe(typingChannel);
+      }
       // Clear all timeouts
       Object.values(typingTimeouts.current).forEach(clearTimeout);
       typingTimeouts.current = {};
     };
-  }, [socket, isConnected, channelId, user?.username]);
+  }, [subscribe, unsubscribe, isConnected, workspaceId, channelId, recipientId, user?.username, user?.id]);
 
-  const handleTyping = useCallback(() => {
-    if (!socket || !isConnected || !user) return;
+  const handleTyping = useCallback(async () => {
+    if (!isConnected || !user) return;
 
-    socket.emit('typing', {
-      workspaceId,
-      channelId,
-      recipientId,
-      username: user.username
-    });
-  }, [socket, isConnected, workspaceId, channelId, recipientId, user]);
+    // Publish typing event via backend API
+    try {
+      await fetch('/api/realtime/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          channel: channelId
+            ? `workspace:${workspaceId}:channel:${channelId}:typing`
+            : recipientId
+              ? `workspace:${workspaceId}:dm:${recipientId}:typing`
+              : null,
+          data: {
+            username: user.username,
+            userId: user.id,
+          },
+        }),
+      });
+    } catch (error) {
+      console.error('[TypingIndicator] Failed to publish typing event:', error);
+    }
+  }, [isConnected, workspaceId, channelId, recipientId, user]);
 
   const stopTyping = useCallback(() => {
-    // Optional: could emit stop_typing event
+    // Optional: could publish stop_typing event
     // For now, we rely on the 3-second timeout
   }, []);
 

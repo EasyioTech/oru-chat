@@ -1,5 +1,6 @@
 import { hash, compare } from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
+import { NextRequest } from 'next/server';
 
 
 function getJwtSecret() {
@@ -33,4 +34,12 @@ export async function verifyToken(token: string) {
     } catch (error) {
         return null;
     }
+}
+
+export async function verifyAuth(request: NextRequest) {
+    const token = request.cookies.get('session')?.value;
+    if (!token) {
+        return null;
+    }
+    return await verifyToken(token);
 }

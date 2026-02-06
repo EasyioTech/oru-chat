@@ -1,11 +1,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
-import Centrifuge, { Subscription } from "centrifuge";
+import { Centrifuge, Subscription } from "centrifuge";
 import { useAuth } from "@/components/AuthProvider";
 
 interface RealtimeContextType {
     client: Centrifuge | null;
+    socket: Centrifuge | null; // Alias for backward compatibility
     isConnected: boolean;
     subscribe: (channel: string, callback: (data: any) => void) => Subscription | null;
     unsubscribe: (channel: string) => void;
@@ -13,6 +14,7 @@ interface RealtimeContextType {
 
 const RealtimeContext = createContext<RealtimeContextType>({
     client: null,
+    socket: null,
     isConnected: false,
     subscribe: () => null,
     unsubscribe: () => { },
@@ -134,7 +136,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <RealtimeContext.Provider value={{ client, isConnected, subscribe, unsubscribe }}>
+        <RealtimeContext.Provider value={{ client, socket: client, isConnected, subscribe, unsubscribe }}>
             {children}
         </RealtimeContext.Provider>
     );
