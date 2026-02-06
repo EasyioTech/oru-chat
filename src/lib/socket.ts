@@ -1,59 +1,53 @@
-import { Emitter } from "@socket.io/redis-emitter";
-import { Redis } from "ioredis";
+/**
+ * Centrifugo Publishing API
+ * Drop-in replacement for Socket.IO Redis Emitter
+ */
 
-let emitterInstance: Emitter | null = null;
-let redisClient: Redis | null = null;
+const CENTRIFUGO_API_URL = process.env.CENTRIFUGO_API_URL || "http://centrifugo:8000/api";
+const CENTRIFUGO_API_KEY = process.env.CENTRIFUGO_API_KEY || "";
 
-// Lazy-load the emitter to avoid connection during build time
-function getEmitter(): Emitter {
-    if (!emitterInstance) {
-        const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-        redisClient = new Redis(redisUrl);
-
-        // Add connection error handling
-        redisClient.on('error', (err) => {
-            console.error('[Redis Emitter] Connection error:', err.message);
+/**
+ * Publish a message to Centrifugo via its HTTP API
+ * This replaces the Socket.IO Redis Emitter pattern
+ */
+async function publishToCentrifugo(channel: string, data: unknown) {
+    try {
+        const response = await fetch(`${CENTRIFUGO_API_URL}/publish`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': CENTRIFUGO_API_KEY,
+            },
+            body: JSON.stringify({ channel, data }),
         });
 
-        redisClient.on('connect', () => {
-            console.log('[Redis Emitter] Connected to Redis:', redisUrl);
-        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Centrifugo API error (${response.status}): ${errorText}`);
+        }
 
-        emitterInstance = new Emitter(redisClient);
+        console.log(`[Centrifugo] Published to channel: ${channel}`);
+    } catch (error) {
+        console.error(`[Centrifugo] Failed to publish to ${channel}:`, error);
+        throw error; // Re-throw so API routes can handle errors
     }
-    return emitterInstance;
 }
 
-// Helper to standardise event emission
+// INTERFACE PARITY: Drop-in replacements for existing Socket.IO functions
 export async function emitToChannel(channelId: string, event: string, data: unknown) {
     if (!channelId) return;
-    try {
-        const io = getEmitter();
-        io.to(`channel:${channelId}`).emit(event, data);
-        console.log(`[Socket] Emitted ${event} to channel:${channelId}`);
-    } catch (error) {
-        console.error(`[Socket] Failed to emit ${event} to channel:${channelId}:`, error);
-    }
+    const channel = `channel:${channelId}`;
+    await publishToCentrifugo(channel, { event, data });
 }
 
 export async function emitToWorkspace(workspaceId: string, event: string, data: unknown) {
     if (!workspaceId) return;
-    try {
-        const io = getEmitter();
-        io.to(`workspace:${workspaceId}`).emit(event, data);
-        console.log(`[Socket] Emitted ${event} to workspace:${workspaceId}`);
-    } catch (error) {
-        console.error(`[Socket] Failed to emit ${event} to workspace:${workspaceId}:`, error);
-    }
+    const channel = `workspace:${workspaceId}`;
+    await publishToCentrifugo(channel, { event, data });
 }
 
 export async function emitToUser(userId: string, event: string, data: unknown) {
     if (!userId) return;
-    try {
-        const io = getEmitter();
-        io.to(`user:${userId}`).emit(event, data);
-        console.log(`[Socket] Emitted ${event} to user:${userId}`);
-    } catch (error) {
-        console.error(`[Socket] Failed to emit ${event} to user:${userId}:`, error);
-    }
+    const channel = `user:${userId}`;
+    await publishToCentrifugo(channel, { event, data });
 }

@@ -126,6 +126,50 @@ services:
     labels:
       - "com.erpcomm.service=cache"
       - "com.erpcomm.description=Redis Cache"
+
+  # Centrifugo - Realtime messaging server
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    container_name: erpcomm-centrifugo
+    restart: unless-stopped
+    ports:
+      - "8001:8000" # Internal port for debugging
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:-centrifugo-api-key-change-me}
+      - CENTRIFUGO_ADMIN_PASSWORD=${CENTRIFUGO_ADMIN_PASSWORD:-admin}
+      - CENTRIFUGO_ADMIN_SECRET=${CENTRIFUGO_ADMIN_SECRET:-admin-secret}
+    volumes:
+      - ./centrifugo.json:/centrifugo/config.json:ro
+    command: centrifugo --config=/centrifugo/config.json
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - erpcomm-network
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.erpcomm.service=realtime"
+      - "com.erpcomm.description=Centrifugo Realtime Server"
+
   # Nginx Reverse Proxy with SSL Support
   nginx:
     image: nginx:stable-alpine
