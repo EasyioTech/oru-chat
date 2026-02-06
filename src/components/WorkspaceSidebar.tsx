@@ -81,7 +81,7 @@ export function WorkspaceSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   const { getPresence } = usePresence(workspaceId);
-  const { socket } = useSocket();
+  const { subscribe, unsubscribe } = useSocket();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -108,22 +108,25 @@ export function WorkspaceSidebar({
   }, [workspaceId, profile?.id]);
 
   useEffect(() => {
-    if (!socket) return;
+    if (!workspaceId) return;
 
-    socket.emit("join-workspace", workspaceId);
+    const channel = `workspace:${workspaceId}`;
+    console.log("[WorkspaceSidebar] Subscribing to:", channel);
 
-    const handleUserUpdated = (updatedUser: Partial<Member> & { id: string }) => {
-      setMembers(prev => prev.map(member =>
-        member.id === updatedUser.id ? { ...member, ...updatedUser } : member
-      ));
-    };
-
-    socket.on("user_updated", handleUserUpdated);
+    subscribe(channel, (message) => {
+      if (message.event === "user_updated") {
+        const updatedUser = message.data as Partial<Member> & { id: string };
+        setMembers(prev => prev.map(member =>
+          member.id === updatedUser.id ? { ...member, ...updatedUser } : member
+        ));
+      }
+    });
 
     return () => {
-      socket.off("user_updated", handleUserUpdated);
+      console.log("[WorkspaceSidebar] Unsubscribing from:", channel);
+      unsubscribe(channel);
     };
-  }, [socket, workspaceId]);
+  }, [workspaceId, subscribe, unsubscribe]);
 
   /* destructure logout from useAuth above at line 72 */
 

@@ -112,7 +112,7 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
-  const { socket, isConnected } = useSocket();
+  const { subscribe, unsubscribe, isConnected } = useSocket();
 
   // Mark as read
   useEffect(() => {
@@ -172,105 +172,90 @@ export function MessageList({ workspaceId, channelId, recipientId, typingUsers =
     fetchMessages();
   }, [fetchMessages]);
 
-  // Socket setup
+  // Socket setup with Centrifuge
   useEffect(() => {
-    if (!socket || !isConnected) {
-      console.log("[MessageList] Socket not ready:", { socket: !!socket, isConnected });
+    if (!isConnected) {
+      console.log("[MessageList] Not connected yet");
       return;
     }
 
-    console.log("[MessageList] Setting up socket listeners for channelId:", channelId);
-
-    if (channelId) {
-      console.log("[MessageList] Emitting join-channel:", channelId);
-      socket.emit("join-channel", channelId);
+    if (!channelId && !recipientId) {
+      console.log("[MessageList] No channel or recipient selected");
+      return;
     }
 
-    const handleNewMessage = (payload: any) => {
-      console.log("[MessageList] Received new_message event:", payload);
+    const channel = channelId ? `channel:${channelId}` : `user:${user?.id}`;
+    console.log("[MessageList] Subscribing to:", channel);
 
-      // Check if message belongs to current view
-      const isChannelMessage = channelId && payload.channel_id === channelId;
-      const isDM = !channelId && recipientId && (
-        (payload.sender_id === recipientId && payload.recipient_id === user?.id) || // From them to me
-        (payload.sender_id === user?.id && payload.recipient_id === recipientId)    // From me to them
-      );
+    const subscription = subscribe(channel, (message) => {
+      console.log("[MessageList] Received message on", channel, message);
 
-      console.log("[MessageList] Message filter:", { isChannelMessage, isDM, channelId, recipientId });
+      if (message.event === "new_message") {
+        const payload = message.data;
 
-      if (isChannelMessage || isDM) {
-        setMessages(prev => {
-          if (prev.some(m => m.id === payload.id)) {
-            console.log("[MessageList] Message already exists, skipping");
-            return prev;
-          }
-          console.log("[MessageList] Adding new message to state");
-          return [...prev, payload];
-        });
-      } else {
-        console.log("[MessageList] Message filtered out (not for this channel/DM)");
-      }
-    };
+        // Check if message belongs to current view
+        const isChannelMessage = channelId && payload.channel_id === channelId;
+        const isDM = !channelId && recipientId && (
+          (payload.sender_id === recipientId && payload.recipient_id === user?.id) || // From them to me
+          (payload.sender_id === user?.id && payload.recipient_id === recipientId)    // From me to them
+        );
 
-    socket.on("new_message", handleNewMessage);
-
-    const handleReconnect = () => {
-      console.log("Socket reconnected, syncing messages...");
-      fetchMessages();
-    };
-
-    socket.on("connect", handleReconnect);
-
-    const handleUserUpdated = (updatedUser: any) => {
-      setMessages(prev => prev.map(m => {
-        if (m.sender_id === updatedUser.id) {
-          return {
-            ...m,
-            sender: {
-              ...m.sender!, // exist sender
-              ...updatedUser // overwrite details
+        if (isChannelMessage || isDM) {
+          setMessages(prev => {
+            if (prev.some(m => m.id === payload.id)) {
+              console.log("[MessageList] Message already exists, skipping");
+              return prev;
             }
-          };
+            console.log("[MessageList] Adding new message to state");
+            return [...prev, payload];
+          });
         }
-        return m;
-      }));
-    };
-
-    socket.on("user_updated", handleUserUpdated);
-
-    const handleReactionUpdated = (payload: { messageId: string, reaction: Reaction, action: 'added' | 'removed' }) => {
-      setMessages(prev => prev.map(m => {
-        if (m.id !== payload.messageId) return m;
-
-        const currentReactions = m.reactions || [];
-        let newReactions = [...currentReactions];
-
-        if (payload.action === 'added') {
-          // Avoid duplicates just in case
-          if (!newReactions.some(r => r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji)) {
-            newReactions.push(payload.reaction);
+      } else if (message.event === "user_updated") {
+        const updatedUser = message.data;
+        setMessages(prev => prev.map(m => {
+          if (m.sender_id === updatedUser.id) {
+            return {
+              ...m,
+              sender: {
+                ...m.sender!,
+                ...updatedUser
+              }
+            };
           }
-        } else {
-          newReactions = newReactions.filter(r => !(r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji));
-        }
+          return m;
+        }));
+      } else if (message.event === "reaction_updated") {
+        const payload = message.data;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== payload.messageId) return m;
 
-        return { ...m, reactions: newReactions };
-      }));
-    };
+          const currentReactions = m.reactions || [];
+          let newReactions = [...currentReactions];
 
-    socket.on("reaction_updated", handleReactionUpdated);
+          if (payload.action === 'added') {
+            if (!newReactions.some(r => r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji)) {
+              newReactions.push(payload.reaction);
+            }
+          } else {
+            newReactions = newReactions.filter(r => !(r.user_id === payload.reaction.user_id && r.emoji === payload.reaction.emoji));
+          }
 
-    // Cleanup
-    return () => {
-      if (channelId) {
-        socket.emit("leave-channel", channelId);
+          return { ...m, reactions: newReactions };
+        }));
       }
-      socket.off("new_message", handleNewMessage);
-      socket.off("connect", handleReconnect);
-      socket.off("user_updated", handleUserUpdated);
-      socket.off("reaction_updated", handleReactionUpdated);
+    });
+
+    // Sync messages when connection is restored
+    if (isConnected) {
+      console.log("[MessageList] Connection restored, syncing messages...");
+      fetchMessages();
+    }
+
+    return () => {
+      console.log("[MessageList] Unsubscribing from:", channel);
+      unsubscribe(channel);
     };
-  }, [socket, isConnected, channelId, recipientId, user?.id]);
+  }, [isConnected, channelId, recipientId, user?.id, subscribe, unsubscribe, fetchMessages]);
 
   // Handle Optimistic Updates
   useEffect(() => {
